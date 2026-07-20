@@ -107,14 +107,42 @@ function dayStr() {
 }
 
 async function fetchGitHub(path, env) {
-  const url = `https://raw.githubusercontent.com/${env.GITHUB_REPO}/main/${path}`;
+  // 优先用 KV 缓存(免费,Worker 边缘节点 ~50ms)
+  if (env.KV) {
+    try {
+      const cached = await env.KV.get(`gh:${path}`);
+      if (cached) return cached;
+    } catch (e) {
+      console.log('KV read failed:', e.message);
+    }
+  }
+
+  // 兜底:从 jsDelivr CDN(国内可达性优于 raw.githubusercontent.com)
+  // 注意:仅对公开仓库可用。私有仓库请用 raw.githubusercontent.com + GITHUB_TOKEN
+  const useJsdelivr = !env.GITHUB_TOKEN && env.PUBLIC_REPO === 'true';
+  const base = useJsdelivr
+    ? `https://cdn.jsdelivr.net/gh/${env.GITHUB_REPO}@main/`
+    : `https://raw.githubusercontent.com/${env.GITHUB_REPO}/main/`;
+  const url = base + path;
+
   const headers = {};
   if (env.GITHUB_TOKEN) headers['Authorization'] = `token ${env.GITHUB_TOKEN}`;
   const r = await fetch(url, { headers });
   if (!r.ok) {
     throw new Error(`GitHub ${path} ${r.status}: ${await r.text()}`);
   }
-  return await r.text();
+  const content = await r.text();
+
+  // 写入 KV 缓存(skill 缓存 1 小时,其他缓存 15 分钟)
+  if (env.KV) {
+    const ttl = path.startsWith('web/skills/') ? 3600 : 900;
+    try {
+      await env.KV.put(`gh:${path}`, content, { expirationTtl: ttl });
+    } catch (e) {
+      console.log('KV write failed:', e.message);
+    }
+  }
+  return content;
 }
 
 function extractSystemPrompt(md) {

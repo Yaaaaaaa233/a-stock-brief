@@ -7,16 +7,30 @@
 ```
 父母点链接
     ↓
-GitHub Pages (chat.html,前端)  ← 免费
-    ↓
-Cloudflare Worker (worker.js,后端)  ← 免费
-    ├── 读 GitHub logs/ 拿今日早报
+Cloudflare Worker (国内可达)
+    ├── 读 KV 缓存(50ms,优先)         ← 推荐
+    ├── 读 jsDelivr CDN(公开仓库)
+    ├── 读 GitHub raw(私有仓库,需 token)
     └── 调 DeepSeek API
 ```
 
+**关键**:父母只访问 Cloudflare Worker,**不直接访问 GitHub**。所以父母不挂 VPN 也能用。
+
+## 仓库公开还是私有?
+
+**强烈建议改成公开仓库**,原因:
+1. jsDelivr CDN 国内可达性好(免费加速)
+2. 代码无敏感信息(API key 都在 GitHub Secrets)
+3. 早报内容本身就是给父母看的,公开无妨
+4. 省去配置 GITHUB_TOKEN 的麻烦
+
+设置:仓库 → Settings → 最底部 Danger Zone → Change visibility → Public
+
+如果想保持私有:也可以,但要配置 `GITHUB_TOKEN`,且不能用 jsDelivr(国内访问会慢一些)。
+
 ---
 
-## 第 1 步:部署 Cloudflare Worker(后端)
+## 第 1 步:部署 Cloudflare Worker
 
 ### 1.1 注册 Cloudflare
 - 访问 https://dash.cloudflare.com/sign-up
@@ -31,123 +45,104 @@ Cloudflare Worker (worker.js,后端)  ← 免费
 
 ### 1.3 粘贴代码
 - 打开本仓库的 `web/worker.js`,**全选复制**
-- 粘贴到 Cloudflare 编辑器(覆盖默认的 hello world 代码)
+- 粘贴到 Cloudflare 编辑器(覆盖默认代码)
 - 右上角 **Save and deploy**
 
 ### 1.4 配置环境变量
-- Worker 详情页 → **Settings** → **Variables**(环境变量)
-- 添加 3 个:
+Worker 详情页 → **Settings** → **Variables**
+
+**必填**:
 
 | Name | Value |
 |---|---|
-| `DEEPSEEK_API_KEY` | `sk-xxx`(你的 DeepSeek Key,跟早报同一个) |
-| `GITHUB_REPO` | `Yaaaaaaa233/a-stock-brief`(你的仓库,带斜杠) |
-| `GITHUB_TOKEN` | (见下方,读私有仓库需要) |
+| `DEEPSEEK_API_KEY` | `sk-xxx`(同早报用的 DeepSeek Key) |
+| `GITHUB_REPO` | `Yaaaaaaa233/a-stock-brief` |
 
-**GITHUB_TOKEN 怎么拿**:
-- 访问 https://github.com/settings/tokens → **Generate new token (classic)**
-- Note 随便填,Expiration 选 `No expiration`(或 1 年)
-- Scopes 勾选 `repo`(完整仓库读写)
-- 生成后复制 token(只显示一次!),粘贴到 Worker 变量
+**公开仓库选填**(启用 jsDelivr 加速):
 
-> 如果你的仓库是 **公开** 的,可以不配 GITHUB_TOKEN
+| Name | Value |
+|---|---|
+| `PUBLIC_REPO` | `true` |
 
-### 1.5 测试 Worker
+**私有仓库必填**:
+
+| Name | Value |
+|---|---|
+| `GITHUB_TOKEN` | GitHub PAT(https://github.com/settings/tokens,勾 `repo` scope) |
+
+### 1.5(可选,推荐)启用 KV 加速
+
+KV 让 Worker 在边缘节点缓存内容,首次访问后只用 50ms 拿数据。
+
+- Cloudflare dashboard → **Workers & Pages** → **KV** → **Create a namespace**
+- Namespace name 填 `ASTOCK_CACHE** → **Add**
+- 回到 Worker → **Settings** → **Variables** → **KV Namespace Bindings** → **Add binding**:
+  - Variable name: `KV`
+  - KV namespace: 选 `ASTOCK_CACHE`
+- **Save and deploy**
+
+代码里已经写好了 KV 逻辑(自动),启用后立即生效。
+
+### 1.6 测试 Worker
 浏览器访问:`https://<你的-worker-url>/api/skills`
 
-应该返回:
-```json
-{"skills":[{"id":"brief","name":"早报解读",...}]}
-```
-
-如果返回这个,后端就 OK 了 ✅
+应该返回:`{"skills":[{"id":"brief",...}]}` ✅
 
 ---
 
-## 第 2 步:部署 chat.html(前端,用 GitHub Pages)
+## 第 2 步:部署 chat.html(前端)
 
 ### 2.1 开启 GitHub Pages
-- 仓库 → **Settings** → 左侧 **Pages**
-- **Source** 选 `Deploy from a branch`
-- **Branch** 选 `main` / 文件夹选 `/web` → **Save**
+- 仓库 → **Settings** → **Pages**
+- Source 选 `Deploy from a branch`
+- Branch 选 `main` / 文件夹选 `/web` → **Save**
 
-### 2.2 等 1-2 分钟
-- 状态栏会变绿,显示:
-  ```
-  Your site is live at https://Yaaaaaaa233.github.io/a-stock-brief/
-  ```
-
-### 2.3 测试访问
-打开:
+### 2.2 等 1-2 分钟,访问:
 ```
 https://Yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://<你的-worker-url>
 ```
 
 注意 URL 后面带 `?api=https://<你的-worker-url>`(首次访问会自动记住,以后不用带)
 
-页面应该显示 5 个技能按钮,点【💬 早报解读】,输入"今天的早报讲了什么",应该能收到 AI 回复 ✅
-
 ---
 
-## 第 3 步:在早报简报里加链接
+## 第 3 步:在简报里加链接
 
-编辑 `config.yaml`,填入 `chat_url`:
+编辑 `config.yaml`:
 
 ```yaml
 brief:
   chat_url: "https://Yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://<你的-worker-url>"
 ```
 
-**注意**:URL 里的 `?` 和 `=` 不需要转义,YAML 字符串直接写。
-
-提交 + push,GitHub Actions 下次跑时,简报末尾会出现:
+push 后,下次早报推送末尾会出现:
 
 ```
----
 💬 进一步了解以上内容,可点此对话: 财经助手
 ```
-
-(企业微信/钉钉里"财经助手"是可点击链接)
 
 ---
 
 ## 常见问题
 
 ### Q1: 父母打开网页是空白
-- 检查 GitHub Pages 状态(仓库 Settings → Pages)
-- 确认 URL 路径正确(`chat.html` 在 `/web/` 目录下)
-- 检查浏览器控制台(F12)有无报错
+- 检查 GitHub Pages 状态
+- 检查 URL 路径(应在 `/web/` 目录下)
+- F12 看控制台报错
 
-### Q2: 父母打开能,但发问没回复
-- 检查 Cloudflare Worker 状态(dashboard 看 Requests 有没有调用)
-- 检查 Worker 变量是否配齐(尤其是 `DEEPSEEK_API_KEY`)
-- 检查 Worker URL 是否正确(chat.html 的 `?api=` 参数)
+### Q2: 父母不挂 VPN 能用吗?
+**能**。父母只访问 Cloudflare Worker(国内可达),Worker 内部从 Cloudflare 数据中心访问 GitHub,不受父母网络影响。
 
-### Q3: 父母反馈 AI 回答"读不到今天早报"
-- 检查仓库 `logs/YYYY-MM.md` 是否存在
-- 如果是私有仓库,确认 `GITHUB_TOKEN` 配置正确且未过期
-- 测试:Worker URL 直接访问 `https://<worker-url>/api/chat`,看返回的错误信息
+### Q3: 觉得慢怎么优化?
+1. 启用 KV 缓存(见 1.5)
+2. 仓库改公开(用 jsDelivr CDN)
+3. 仍然慢:可能是 DeepSeek API 慢(主要瓶颈)
 
-### Q4: Cloudflare Workers 国内访问慢
-- 大部分时候国内可达(< 500ms)
-- 偶尔慢可接受(对话场景不要求实时)
-- 实在不稳:可换 Vercel/Netlify(同样免费)
+### Q4: 想换/加 skill
+- 编辑 `web/skills/*.md`
+- push 后 Worker 自动读到(skill 缓存 1 小时,可等也可在 Cloudflare 手动清 KV)
+- 加新 skill:新建 md 文件 + 在 `web/worker.js` 的 `SKILLS_META` 加一项
 
-### Q5: 想换/加 skill
-- 编辑 `web/skills/*.md`(改提示词)
-- 或加新文件,然后在 `web/worker.js` 的 `SKILLS_META` 加一项
-- push 后 Worker 自动读到最新(无缓存)
-
-### Q6: 想让父母清除对话历史
-- 网页右上角有 🗑 按钮,点击即可清除当前模式的历史
-- 或者让父母清浏览器缓存
-
----
-
-## 后续可选优化
-
-- **加访问口令**:Worker 加一个 `PASSWORD` 变量,前端首次访问要输入
-- **限制访问频率**:Worker 用 KV 记录 IP,防止滥用
-- **流式输出**:Worker 改用 SSE,前端逐字显示(体验更好,代码复杂度高)
-- **语音输入**:chat.html 加 Web Speech API,父母可以说话提问
-- **导出对话**:前端加导出按钮,把对话保存为图片/文本
+### Q5: 对话日志存哪里?
+当前不存(对话是临时会话,关掉就消失)。
+如需存储,推荐 Cloudflare D1(免费 SQLite),不建议存 GitHub(commit 太慢)。
