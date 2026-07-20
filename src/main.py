@@ -269,14 +269,10 @@ def run() -> int:
     logger.info(f"[factcheck] {result.level}: {result.issues}")
 
     if result.level == "REJECT":
-        warning_note = "\n\n⚠️ **本次 AI 分析存在问题(疑似幻觉或违规),已自动降级为原始新闻列表。**\n"
+        warning_note = "\n\n⚠️ 本次 AI 分析存在问题,已自动降级为原始新闻列表,请以原文为准。"
         brief = brief + warning_note
-
-    if result.level == "WARN":
-        warn_block = "\n\n⚠️ **以下内容存在待确认项,请注意甄别:**\n"
-        for issue in result.issues[:5]:
-            warn_block += f"- {issue}\n"
-        brief = brief + warn_block
+    elif result.level == "WARN":
+        logger.warning(f"[factcheck] 待确认项(不显示给用户): {result.issues}")
 
     ok = pusher.markdown(brief, title="A股财经早报")
     archive_path = archive_brief(brief, now_beijing)

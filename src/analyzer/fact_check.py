@@ -15,7 +15,7 @@ import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
-from ..sources.base import Analysis, Item, MarketSnapshot
+from ..sources.base import Analysis, Item, MarketSnapshot, _evidence_matches_source
 
 logger = logging.getLogger(__name__)
 
@@ -130,19 +130,16 @@ class FactChecker:
     def _check_evidence_in_original(
         analyses: list[Analysis], items: list[Item], issues: list[str]
     ) -> None:
-        """再次校验 evidence(双重保险)。"""
+        """再次校验 evidence(双重保险,用模糊匹配与 validate 保持一致)。"""
         for analysis, item in zip(analyses, items):
             if analysis is None or item is None:
                 continue
             if analysis.importance >= 4:
                 if not analysis.evidence:
                     issues.append(f"重要新闻缺 evidence: {item.title[:30]}")
-                elif (
-                    analysis.evidence not in item.content
-                    and analysis.evidence not in item.title
-                ):
+                elif not _evidence_matches_source(analysis.evidence, item):
                     issues.append(
-                        f"evidence 不在原文(重要新闻): {item.title[:30]}"
+                        f"evidence 与原文匹配度过低(重要新闻): {item.title[:30]}"
                     )
 
     @staticmethod
