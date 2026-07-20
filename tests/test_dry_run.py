@@ -89,6 +89,7 @@ def main():
         max_headline=push_cfg.get("max_headline", 3),
         max_important=push_cfg.get("max_important", 3),
         max_normal=push_cfg.get("max_normal", 2),
+        chat_url=brief_cfg.get("chat_url", "") or "",
     )
 
     checker = FactChecker()

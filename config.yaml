@@ -135,6 +135,9 @@ brief:
   title_prefix: "📊 A股财经早报"
   disclaimer: "本简报由 AI 自动整理公开信息生成,关注建议仅供参考,不构成任何投资建议。"
   timezone: "Asia/Shanghai"
+  # 对话网页 URL(部署后填写,GitHub Pages 或 Cloudflare Pages 地址)
+  # 留空则简报末尾不显示对话链接
+  chat_url: ""
 
 # 节假日(手动维护,akshare 也有交易日历可程序化判断)
 # 格式: YYYY-MM-DD

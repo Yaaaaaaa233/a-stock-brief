@@ -123,6 +123,7 @@ def format_brief(
     max_headline: int = 3,
     max_important: int = 3,
     max_normal: int = 2,
+    chat_url: str = "",
 ) -> str:
     """生成简报:资讯段 + 建议段。"""
     paired = [
@@ -174,6 +175,9 @@ def format_brief(
             lines.append("\n## 💡 关注建议\n")
             for s in suggestions[:5]:
                 lines.append(_format_suggestion(s))
+
+    if chat_url and has_analysis:
+        lines.append(f"\n---\n💬 **进一步了解以上内容,可点此对话:** [财经助手]({chat_url})\n")
 
     if not paired and not has_analysis:
         lines.append("\n今日无重要资讯。")
