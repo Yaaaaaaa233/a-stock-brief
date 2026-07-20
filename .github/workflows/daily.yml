@@ -58,6 +58,14 @@ jobs:
             git push
           fi
 
+      - name: 同步到 Cloudflare KV(对话网页加速)
+        if: success() && env.CF_API_TOKEN != ''
+        env:
+          CF_API_TOKEN: ${{ secrets.CF_API_TOKEN }}
+          CF_ACCOUNT_ID: ${{ secrets.CF_ACCOUNT_ID }}
+          KV_NAMESPACE_ID: ${{ secrets.KV_NAMESPACE_ID }}
+        run: python -m web.sync_to_kv
+
       - name: 上传运行状态(可选)
         if: always()
         uses: actions/upload-artifact@v4

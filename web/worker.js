@@ -106,20 +106,33 @@ function dayStr() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
 }
 
+function pathToKvKey(path) {
+  if (path.startsWith('web/skills/')) {
+    return `skills:${path.split('/').pop().replace('.md', '')}`;
+  }
+  if (path.startsWith('logs/')) {
+    return `logs:${path.split('/').pop().replace('.md', '')}`;
+  }
+  if (path === 'config.yaml') return 'config:yaml';
+  return null;
+}
+
 async function fetchGitHub(path, env) {
-  // 优先用 KV 缓存(免费,Worker 边缘节点 ~50ms)
+  // 1. 优先从 KV 读(主动同步的内容 + 被动缓存的内容都在这里)
   if (env.KV) {
-    try {
-      const cached = await env.KV.get(`gh:${path}`);
-      if (cached) return cached;
-    } catch (e) {
-      console.log('KV read failed:', e.message);
+    const kvKey = pathToKvKey(path);
+    if (kvKey) {
+      try {
+        const cached = await env.KV.get(kvKey);
+        if (cached) return cached;
+      } catch (e) {
+        console.log('KV read failed:', e.message);
+      }
     }
   }
 
-  // 兜底:从 jsDelivr CDN(国内可达性优于 raw.githubusercontent.com)
-  // 注意:仅对公开仓库可用。私有仓库请用 raw.githubusercontent.com + GITHUB_TOKEN
-  const useJsdelivr = !env.GITHUB_TOKEN && env.PUBLIC_REPO === 'true';
+  // 2. KV 未命中 → 兜底:jsDelivr(公开仓库)或 GitHub raw(私有仓库)
+  const useJsdelivr = env.PUBLIC_REPO === 'true' && !env.GITHUB_TOKEN;
   const base = useJsdelivr
     ? `https://cdn.jsdelivr.net/gh/${env.GITHUB_REPO}@main/`
     : `https://raw.githubusercontent.com/${env.GITHUB_REPO}/main/`;
@@ -133,13 +146,16 @@ async function fetchGitHub(path, env) {
   }
   const content = await r.text();
 
-  // 写入 KV 缓存(skill 缓存 1 小时,其他缓存 15 分钟)
+  // 3. 回写 KV(被动缓存:skill 1 小时,其他 15 分钟)
   if (env.KV) {
-    const ttl = path.startsWith('web/skills/') ? 3600 : 900;
-    try {
-      await env.KV.put(`gh:${path}`, content, { expirationTtl: ttl });
-    } catch (e) {
-      console.log('KV write failed:', e.message);
+    const kvKey = pathToKvKey(path);
+    if (kvKey) {
+      const ttl = path.startsWith('web/skills/') ? 3600 : 900;
+      try {
+        await env.KV.put(kvKey, content, { expirationTtl: ttl });
+      } catch (e) {
+        console.log('KV write failed:', e.message);
+      }
     }
   }
   return content;
@@ -169,30 +185,56 @@ function extractRecentLogs(logs) {
   return sections.slice(-7).join('\n## ').trim();
 }
 
+async function loadTodayBrief(env) {
+  // 优先 KV logs:latest(GitHub Actions 主动同步,~50ms)
+  if (env.KV) {
+    try {
+      const latest = await env.KV.get('logs:latest');
+      if (latest) return latest;
+    } catch (e) {
+      console.log('KV latest read failed:', e.message);
+    }
+  }
+  // 兜底:从 GitHub 拉 logs/YYYY-MM.md,提取当天段落
+  const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
+  return extractLatestDayBrief(logs);
+}
+
+async function loadRecentLogs(env) {
+  // 优先 KV logs:YYYY-MM
+  if (env.KV) {
+    try {
+      const monthly = await env.KV.get(`logs:${monthStr()}`);
+      if (monthly) return extractRecentLogs(monthly);
+    } catch (e) {
+      console.log('KV monthly read failed:', e.message);
+    }
+  }
+  const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
+  return extractRecentLogs(logs);
+}
+
 async function buildSystemPrompt(skillId, env) {
   const md = await fetchGitHub(`web/skills/${skillId}.md`, env);
   let prompt = extractSystemPrompt(md);
 
   if (prompt.includes('{{today_brief}}')) {
     try {
-      const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
-      prompt = prompt.replace('{{today_brief}}', extractLatestDayBrief(logs));
+      prompt = prompt.replace('{{today_brief}}', await loadTodayBrief(env));
     } catch (e) {
       prompt = prompt.replace('{{today_brief}}', '(今日早报暂未生成)');
     }
   }
   if (prompt.includes('{{recent_logs}}')) {
     try {
-      const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
-      prompt = prompt.replace('{{recent_logs}}', extractRecentLogs(logs));
+      prompt = prompt.replace('{{recent_logs}}', await loadRecentLogs(env));
     } catch (e) {
       prompt = prompt.replace('{{recent_logs}}', '(历史日志暂未生成)');
     }
   }
   if (prompt.includes('{{sectors_config}}')) {
     try {
-      const cfg = await fetchGitHub('config.yaml', env);
-      prompt = prompt.replace('{{sectors_config}}', cfg);
+      prompt = prompt.replace('{{sectors_config}}', await fetchGitHub('config.yaml', env));
     } catch (e) {
       prompt = prompt.replace('{{sectors_config}}', '(板块配置加载失败)');
     }

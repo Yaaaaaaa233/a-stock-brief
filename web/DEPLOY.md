@@ -1,148 +1,146 @@
-# 对话网页部署指引
+# 对话网页部署指引(私有仓库 + KV 全缓存版)
 
-3 个步骤,把「财经对话助手」上线。预计 30 分钟。
+支持**私有仓库**,父母访问最快(Worker 只读 KV,完全不依赖 GitHub)。
 
 ## 总览
 
 ```
-父母点链接
-    ↓
-Cloudflare Worker (国内可达)
-    ├── 读 KV 缓存(50ms,优先)         ← 推荐
-    ├── 读 jsDelivr CDN(公开仓库)
-    ├── 读 GitHub raw(私有仓库,需 token)
-    └── 调 DeepSeek API
+GitHub Actions 跑完早报
+    ↓ 自动同步 logs/skills/config 到 Cloudflare KV
+    
+父母点链接 → Cloudflare Worker(国内可达)
+              ↓ 只读 KV(50ms)
+              ↓ 调用 DeepSeek API
+              (完全不接触 GitHub)
 ```
 
-**关键**:父母只访问 Cloudflare Worker,**不直接访问 GitHub**。所以父母不挂 VPN 也能用。
-
-## 仓库公开还是私有?
-
-**强烈建议改成公开仓库**,原因:
-1. jsDelivr CDN 国内可达性好(免费加速)
-2. 代码无敏感信息(API key 都在 GitHub Secrets)
-3. 早报内容本身就是给父母看的,公开无妨
-4. 省去配置 GITHUB_TOKEN 的麻烦
-
-设置:仓库 → Settings → 最底部 Danger Zone → Change visibility → Public
-
-如果想保持私有:也可以,但要配置 `GITHUB_TOKEN`,且不能用 jsDelivr(国内访问会慢一些)。
+**优势**:仓库私有 + 父母访问最快 + 不受 GitHub 网络影响。
 
 ---
 
-## 第 1 步:部署 Cloudflare Worker
+## 第 1 步:Cloudflare 准备
 
 ### 1.1 注册 Cloudflare
-- 访问 https://dash.cloudflare.com/sign-up
-- 邮箱 + 密码注册(免费,不需要信用卡)
+访问 https://dash.cloudflare.com/sign-up 注册(免费,不需要信用卡)。
 
-### 1.2 创建 Worker
-- 登录后进入 dashboard
-- 左侧 **Workers & Pages** → **Create application** → **Create Worker**
-- 名字随便填(如 `astock-chat`)→ **Deploy**
-- 部署后会有 URL,如 `https://astock-chat.<你的子域>.workers.dev`
-- 点 **Edit code**(编辑代码)
+### 1.2 创建 KV namespace(数据存储)
+- Dashboard 左侧 → **Workers & Pages** → **KV** → **Create a namespace**
+- Name 填 `ASTOCK_CACHE` → **Add**
+- 创建后,**记录 Namespace ID**(后面要用)
 
-### 1.3 粘贴代码
-- 打开本仓库的 `web/worker.js`,**全选复制**
-- 粘贴到 Cloudflare 编辑器(覆盖默认代码)
-- 右上角 **Save and deploy**
+### 1.3 创建 Worker
+- Dashboard → **Workers & Pages** → **Create application** → **Create Worker**
+- Name 填 `astock-chat` → **Deploy**
+- **Edit code** → 把本仓库 `web/worker.js` 全选复制粘贴进去 → **Save and deploy**
+- 记录 Worker URL,如 `https://astock-chat.<你的子域>.workers.dev`
 
-### 1.4 配置环境变量
-Worker 详情页 → **Settings** → **Variables**
-
-**必填**:
-
-| Name | Value |
-|---|---|
-| `DEEPSEEK_API_KEY` | `sk-xxx`(同早报用的 DeepSeek Key) |
-| `GITHUB_REPO` | `Yaaaaaaa233/a-stock-brief` |
-
-**公开仓库选填**(启用 jsDelivr 加速):
-
-| Name | Value |
-|---|---|
-| `PUBLIC_REPO` | `true` |
-
-**私有仓库必填**:
-
-| Name | Value |
-|---|---|
-| `GITHUB_TOKEN` | GitHub PAT(https://github.com/settings/tokens,勾 `repo` scope) |
-
-### 1.5(可选,推荐)启用 KV 加速
-
-KV 让 Worker 在边缘节点缓存内容,首次访问后只用 50ms 拿数据。
-
-- Cloudflare dashboard → **Workers & Pages** → **KV** → **Create a namespace**
-- Namespace name 填 `ASTOCK_CACHE** → **Add**
-- 回到 Worker → **Settings** → **Variables** → **KV Namespace Bindings** → **Add binding**:
-  - Variable name: `KV`
+### 1.4 绑定 KV 到 Worker
+- Worker 详情页 → **Settings** → **Variables** → **KV Namespace Bindings** → **Add binding**:
+  - Variable name: **`KV`**(必须叫这个)
   - KV namespace: 选 `ASTOCK_CACHE`
 - **Save and deploy**
 
-代码里已经写好了 KV 逻辑(自动),启用后立即生效。
+### 1.5 配置环境变量
+Worker 详情页 → **Settings** → **Variables** → **Environment Variables**,添加:
 
-### 1.6 测试 Worker
-浏览器访问:`https://<你的-worker-url>/api/skills`
+| Name | Value |
+|---|---|
+| `DEEPSEEK_API_KEY` | `sk-xxx`(同早报用的 Key) |
+| `GITHUB_REPO` | `Yaaaaaaa233/a-stock-brief` |
 
-应该返回:`{"skills":[{"id":"brief",...}]}` ✅
+(不需要配 `GITHUB_TOKEN`,因为 KV 全缓存,Worker 不直接访问 GitHub)
+
+### 1.6 获取 Cloudflare API Token(GitHub Actions 用)
+- 访问 https://dash.cloudflare.com/profile/api-tokens → **Create Token**
+- 选 **"Edit Cloudflare Workers"** 模板 → Continue to summary
+- **Create Token** → 复制 token(只显示一次!)
+- 同时记录 **Account ID**(dashboard 右侧栏,或在 Worker 页面能看到)
+
+### 1.7 测试 Worker
+浏览器访问:`https://<worker-url>/api/skills`,应该返回 JSON。
 
 ---
 
-## 第 2 步:部署 chat.html(前端)
+## 第 2 步:GitHub Secrets 配置
 
-### 2.1 开启 GitHub Pages
+仓库 → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**,添加:
+
+| Secret | 来源 |
+|---|---|
+| `WECOM_WEBHOOK` | 早报推送 webhook |
+| `DEEPSEEK_API_KEY` | DeepSeek Key |
+| `CF_API_TOKEN` | 上一步 1.6 创建的 Cloudflare Token |
+| `CF_ACCOUNT_ID` | 上一步 1.6 看到的 Account ID |
+| `KV_NAMESPACE_ID` | 上一步 1.2 创建 KV 时的 Namespace ID |
+
+---
+
+## 第 3 步:GitHub Pages(部署 chat.html)
+
 - 仓库 → **Settings** → **Pages**
-- Source 选 `Deploy from a branch`
-- Branch 选 `main` / 文件夹选 `/web` → **Save**
-
-### 2.2 等 1-2 分钟,访问:
-```
-https://Yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://<你的-worker-url>
-```
-
-注意 URL 后面带 `?api=https://<你的-worker-url>`(首次访问会自动记住,以后不用带)
+- Source:`Deploy from a branch`
+- Branch:`main` / 文件夹 `/web` → **Save**
+- 等 1-2 分钟,访问 `https://Yaaaaaaa233.github.io/a-stock-brief/`
 
 ---
 
-## 第 3 步:在简报里加链接
+## 第 4 步:配 chat_url
 
 编辑 `config.yaml`:
 
 ```yaml
 brief:
-  chat_url: "https://Yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://<你的-worker-url>"
+  chat_url: "https://Yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://<worker-url>"
 ```
 
-push 后,下次早报推送末尾会出现:
+push 后,下次早报推送末尾出现对话链接。
 
-```
-💬 进一步了解以上内容,可点此对话: 财经助手
-```
+---
+
+## 工作流(全自动)
+
+每次 GitHub Actions 跑(每天 8:00 或手动触发):
+
+1. 抓数据 → LLM 分析 → 生成简报 ✅
+2. 推送到企业微信群 ✅
+3. 归档到 `logs/YYYY-MM.md`,commit 到仓库 ✅
+4. **同步 logs/skills/config 到 Cloudflare KV** ✅
+
+之后父母访问 Worker 时,Worker 只从 KV 读(50ms),完全不依赖 GitHub,访问速度跟仓库公开/私有无关。
 
 ---
 
 ## 常见问题
 
 ### Q1: 父母打开网页是空白
-- 检查 GitHub Pages 状态
-- 检查 URL 路径(应在 `/web/` 目录下)
 - F12 看控制台报错
+- 确认 GitHub Pages 已开启,URL 路径正确
 
-### Q2: 父母不挂 VPN 能用吗?
-**能**。父母只访问 Cloudflare Worker(国内可达),Worker 内部从 Cloudflare 数据中心访问 GitHub,不受父母网络影响。
+### Q2: 父母发的消息没回复
+- 测试 `https://<worker-url>/api/skills` 是否返回 JSON
+- 检查 `DEEPSEEK_API_KEY` 是否配
+- Worker 详情页 → **Real-time Logs** 看错误
 
-### Q3: 觉得慢怎么优化?
-1. 启用 KV 缓存(见 1.5)
-2. 仓库改公开(用 jsDelivr CDN)
-3. 仍然慢:可能是 DeepSeek API 慢(主要瓶颈)
+### Q3: KV 同步失败
+- GitHub Actions 日志看 `同步到 Cloudflare KV` 步骤
+- 检查 `CF_API_TOKEN` / `CF_ACCOUNT_ID` / `KV_NAMESPACE_ID` 是否都配了
+- Cloudflare API Token 是否有 KV Edit 权限(必须用 "Edit Cloudflare Workers" 模板)
 
-### Q4: 想换/加 skill
-- 编辑 `web/skills/*.md`
-- push 后 Worker 自动读到(skill 缓存 1 小时,可等也可在 Cloudflare 手动清 KV)
-- 加新 skill:新建 md 文件 + 在 `web/worker.js` 的 `SKILLS_META` 加一项
+### Q4: 改了 skill 但 Worker 没读到最新
+- 因为 KV 有缓存,改 skill 后下一次 GitHub Actions 跑完会自动同步
+- 想立刻生效:Cloudflare dashboard → KV → 手动删 `skills:<id>` 键
+- 或在 GitHub Actions 手动触发 workflow
 
-### Q5: 对话日志存哪里?
-当前不存(对话是临时会话,关掉就消失)。
-如需存储,推荐 Cloudflare D1(免费 SQLite),不建议存 GitHub(commit 太慢)。
+### Q5: 父母不挂 VPN 能用吗
+**能**。父母只访问 Cloudflare Worker,Worker 只读 Cloudflare KV,**全程不接触 GitHub**。
+
+---
+
+## 备选:仓库公开(更简单)
+
+如果你不在乎公开(代码无敏感信息):
+1. 仓库改 Public
+2. Worker 配 `PUBLIC_REPO=true`(可选,不用 KV 也能跑,只是慢一点)
+3. 完全省略本指引的 KV 配置步骤
+
+但**强烈推荐用 KV 全缓存方案**,因为父母访问最快,且不依赖 GitHub 网络稳定性。
