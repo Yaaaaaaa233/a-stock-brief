@@ -1,18 +1,15 @@
-"""本地预览服务器 - 不需要部署就能看网页效果。
+"""本地预览服务器 - 单一对话版,跟 worker.js 行为一致。
 
 用法:
     cd Toolbox/A
     export DEEPSEEK_API_KEY="sk-xxx"
     python -m web.dev_server
-    # 然后浏览器打开 http://localhost:8765
-
-按 Ctrl+C 退出。
+    # 浏览器打开 http://localhost:8765
 """
 from __future__ import annotations
 
 import json
 import os
-import re
 import sys
 import threading
 import webbrowser
@@ -31,41 +28,6 @@ PORT = int(os.environ.get("PORT", "8765"))
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Yaaaaaaa233/a-stock-brief")
-GITHUB_TOKEN = os.environ.get("GITHUB_TOKEN", "")
-
-SKILLS_META = {
-    "brief": {
-        "name": "早报解读", "icon": "💬",
-        "description": "基于今日早报回答,父母友好",
-        "default": True,
-        "greeting": "👋 你好!我已经读取了今天的早报,有什么想了解的吗?比如某条新闻的意思、对哪些板块有影响。",
-        "quickReplies": ["今天的早报讲了什么?", "今天最值得关注的是什么?", "有啥风险要注意?"],
-    },
-    "sector": {
-        "name": "板块查询", "icon": "🏭",
-        "description": "查询板块龙头股",
-        "greeting": "👋 想了解哪个板块?我可以告诉你对应的龙头股和关键词。",
-        "quickReplies": ["新能源板块有哪些龙头股?", "半导体板块关注什么?", "低空经济是什么?"],
-    },
-    "policy": {
-        "name": "政策解读", "icon": "📜",
-        "description": "通俗解释财经政策",
-        "greeting": "👋 把政策原文或者关键词发给我,我用大白话解释 + 打比方 + 影响分析。",
-        "quickReplies": ["降准是什么意思?", "LPR 调整影响房贷吗?", "集采对医药股是利好还是利空?"],
-    },
-    "concept": {
-        "name": "概念科普", "icon": "📚",
-        "description": "解释财经名词",
-        "greeting": "👋 遇到不懂的财经名词?发给我,我用最简单的话+生活化比喻解释。",
-        "quickReplies": ["什么是 PE?", "北向资金是什么?", "融资融券是啥意思?"],
-    },
-    "history": {
-        "name": "历史回顾", "icon": "🗓",
-        "description": "查看过去几天早报",
-        "greeting": "👋 我可以帮你回顾过去 7 天的早报内容。",
-        "quickReplies": ["本周讲了哪些大事?", "上周和这周比较?", "最近有啥政策?"],
-    },
-}
 
 
 def bj_now() -> datetime:
@@ -83,37 +45,20 @@ def day_str() -> str:
 
 
 def fetch_github(path: str) -> str:
-    """优先读本地,失败再读 jsDelivr CDN(国内可达性较好)。"""
     local_candidates = {
-        f"web/skills/{Path(path).name}": WEB_DIR / "skills" / Path(path).name,
         f"web/{Path(path).name}": WEB_DIR / Path(path).name,
         f"logs/{Path(path).name}": LOGS_DIR / Path(path).name,
         "config.yaml": CONFIG_PATH,
     }
     if path in local_candidates and local_candidates[path].exists():
         return local_candidates[path].read_text(encoding="utf-8")
-
-    # jsDelivr CDN(国内可达性较好,但只对公开仓库有效)
-    if GITHUB_TOKEN:
-        url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{path}"
-        headers = {"Authorization": f"token {GITHUB_TOKEN}"}
-    else:
-        url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/{path}"
-        headers = {}
-    r = requests.get(url, headers=headers, timeout=15)
+    url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/{path}"
+    r = requests.get(url, timeout=15)
     r.raise_for_status()
     return r.text
 
 
-def extract_system_prompt(md: str) -> str:
-    if md.startswith("---"):
-        fm_end = md.find("\n---", 3)
-        if fm_end > 0:
-            return md[fm_end + 4:].strip()
-    return md.strip()
-
-
-def extract_latest_day_brief(logs: str) -> str:
+def extract_latest_day(logs: str) -> str:
     day_key = f"## {day_str()}"
     idx = logs.rfind(day_key)
     if idx < 0:
@@ -122,42 +67,64 @@ def extract_latest_day_brief(logs: str) -> str:
     return logs[idx:next_section].strip() if next_section > 0 else logs[idx:].strip()
 
 
-def extract_recent_logs(logs: str) -> str:
-    sections = re.split(r"\n## (?=\d{4}-\d{2}-\d{2})", logs)
-    return "\n## ".join(sections[-7:]).strip()
+def build_system_prompt() -> str:
+    try:
+        logs = fetch_github(f"logs/{month_str()}.md")
+        brief = extract_latest_day(logs)
+    except Exception as e:
+        brief = f"(今日早报暂未生成: {e})"
 
+    try:
+        sectors = fetch_github("config.yaml")
+    except Exception:
+        sectors = "(板块配置加载失败)"
 
-def build_system_prompt(skill_id: str) -> str:
-    md = fetch_github(f"web/skills/{skill_id}.md")
-    prompt = extract_system_prompt(md)
+    return f"""你是财经助手,服务对象是 55-70 岁的中老年 A 股投资者(只用微信,不熟悉专业术语)。
 
-    if "{{today_brief}}" in prompt:
-        try:
-            logs = fetch_github(f"logs/{month_str()}.md")
-            prompt = prompt.replace("{{today_brief}}", extract_latest_day_brief(logs))
-        except Exception as e:
-            prompt = prompt.replace("{{today_brief}}", f"(今日早报暂未生成: {e})")
+## 今日早报内容(已自动加载)
 
-    if "{{recent_logs}}" in prompt:
-        try:
-            logs = fetch_github(f"logs/{month_str()}.md")
-            prompt = prompt.replace("{{recent_logs}}", extract_recent_logs(logs))
-        except Exception:
-            prompt = prompt.replace("{{recent_logs}}", "(历史日志暂无)")
+{brief}
 
-    if "{{sectors_config}}" in prompt:
-        try:
-            cfg = fetch_github("config.yaml")
-            prompt = prompt.replace("{{sectors_config}}", cfg)
-        except Exception:
-            prompt = prompt.replace("{{sectors_config}}", "(配置加载失败)")
+## 板块配置(查询龙头股时严格按此)
 
-    return prompt
+{sectors}
+
+## 回答准则
+
+1. **通俗**:遇到专业词用 1 个生活化比喻解释(降准=银行少交保证金)
+2. **简洁**:回答不超过 250 字,先结论后原因
+3. **客观**:不给具体买卖建议(如"应该买 XX"),但可以解释影响方向
+4. **诚实**:早报里没讲到的,直接说"今天早报没提到",再按通用知识回答
+5. **风险提示**:提到具体股票时,自动加"投资有风险,仅供参考"
+6. **不预测涨跌**:严禁"会涨""必涨""必跌",改为"通常被认为是利好/利空"
+
+## 关于"政策"的严格定义(重要)
+
+✅ **是政策**:
+- 国务院 / 央行 / 各部委 / 地方政府正式发文
+- 有明确发文单位(如"央行决定""财政部公告")
+- 有具体执行措施(降准 0.5% / 补贴延长至 X 年)
+
+❌ **不是政策**:
+- 新闻媒体报道"国家可能..."、"据传..."
+- 分析师/机构的预测或建议
+- 公司公告(这是企业行为)
+- 普通时事新闻
+
+**用户问"今天有什么政策"时**,只从今日早报里找符合严格定义的内容,不要把新闻当政策。
+
+## 禁止行为
+
+- ❌ "建议买入/卖出 XX 股票"
+- ❌ "会涨/跌 X%"
+- ❌ 编造不在配置里的股票
+- ❌ 把新闻/传闻说成政策
+"""
 
 
 def call_deepseek(system_prompt: str, history: list, message: str) -> str:
     if not DEEPSEEK_KEY:
-        return "⚠️ 未配置 DEEPSEEK_API_KEY 环境变量,无法调用 AI。\n\n请运行:\n```\nexport DEEPSEEK_API_KEY=sk-xxx\n```"
+        return "⚠️ 未配置 DEEPSEEK_API_KEY 环境变量。\n\n请运行:\n```\nexport DEEPSEEK_API_KEY=sk-xxx\n```"
     messages = [
         {"role": "system", "content": system_prompt},
         *history[-10:],
@@ -179,8 +146,7 @@ def call_deepseek(system_prompt: str, history: list, message: str) -> str:
         timeout=60,
     )
     r.raise_for_status()
-    data = r.json()
-    return data["choices"][0]["message"]["content"]
+    return r.json()["choices"][0]["message"]["content"]
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -206,37 +172,20 @@ class Handler(BaseHTTPRequestHandler):
             status,
         )
 
-    def _serve_static(self, path: Path, content_type: str):
-        if not path.exists():
-            self._send(b"Not Found", "text/plain", 404)
-            return
-        self._send(path.read_bytes(), content_type)
-
     def do_OPTIONS(self):
         self._send(b"ok", "text/plain")
 
     def do_GET(self):
         path = urlparse(self.path).path
-        if path in ("/", "/chat.html"):
-            self._serve_static(WEB_DIR / "chat.html", "text/html; charset=utf-8")
-        elif path == "/api/skills":
-            skills = [
-                {"id": k, "name": v["name"], "icon": v["icon"],
-                 "description": v["description"], "default": v.get("default", False),
-                 "greeting": v.get("greeting", ""), "quickReplies": v.get("quickReplies", [])}
-                for k, v in SKILLS_META.items()
-            ]
-            self._json({"skills": skills})
-        elif path == "/health":
+        if path in ("/", "/chat.html", "/index.html"):
+            self._send((WEB_DIR / "chat.html").read_bytes(), "text/html; charset=utf-8")
+        elif path == "/api/health":
             self._json({
                 "ok": True,
-                "service": "a-stock-chat-dev",
                 "has_deepseek_key": bool(DEEPSEEK_KEY),
                 "github_repo": GITHUB_REPO,
                 "time": bj_now().isoformat(),
             })
-        elif path.startswith("/skills/"):
-            self._serve_static(WEB_DIR / path[1:], "text/markdown; charset=utf-8")
         else:
             self._send(b"Not Found", "text/plain", 404)
 
@@ -248,21 +197,16 @@ class Handler(BaseHTTPRequestHandler):
         try:
             length = int(self.headers.get("Content-Length", 0))
             body = json.loads(self.rfile.read(length))
-            skill_id = body.get("skill")
             message = body.get("message", "")
             history = body.get("history", [])
-            if skill_id not in SKILLS_META:
-                self._json({"error": f"未知 skill: {skill_id}"}, 400)
+            if not message:
+                self._json({"error": "缺少 message"}, 400)
                 return
-            system_prompt = build_system_prompt(skill_id)
+            system_prompt = build_system_prompt()
             reply = call_deepseek(system_prompt, history, message)
             self._json({"reply": reply})
         except Exception as e:
             self._json({"error": str(e)}, 502)
-
-
-def open_browser():
-    webbrowser.open(f"http://localhost:{PORT}")
 
 
 def main():
@@ -273,13 +217,12 @@ def main():
     print(f"📁 本地目录: {ROOT}")
     print(f"🌐 访问地址: http://localhost:{PORT}")
     print(f"🔧 DeepSeek Key: {'已配置' if DEEPSEEK_KEY else '未配置'}")
-    print(f"📦 GitHub Repo: {GITHUB_REPO}")
     print()
     print("按 Ctrl+C 停止")
     print()
 
     server = ThreadingHTTPServer(("127.0.0.1", PORT), Handler)
-    threading.Timer(1.0, open_browser).start()
+    threading.Timer(1.0, lambda: webbrowser.open(f"http://localhost:{PORT}")).start()
     try:
         server.serve_forever()
     except KeyboardInterrupt:

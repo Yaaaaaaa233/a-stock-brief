@@ -146,6 +146,21 @@ def sync_config() -> tuple[int, int]:
     return 0, 1
 
 
+def sync_chat_html() -> tuple[int, int]:
+    """同步 web/chat.html(Worker 直接 serve,不再依赖 GitHub Pages)。"""
+    chat_file = WEB_DIR / "chat.html"
+    if not chat_file.exists():
+        print("⚠️  web/chat.html 不存在,跳过")
+        return 0, 0
+    content = chat_file.read_text(encoding="utf-8")
+    ok, msg = write_kv("chat:html", content)
+    if ok:
+        print(f"  ✓ chat:html ({len(content):,} 字符)")
+        return 1, 0
+    print(f"  ✗ chat:html 失败: {msg}", file=sys.stderr)
+    return 0, 1
+
+
 def main() -> int:
     if not all([CF_API_TOKEN, CF_ACCOUNT_ID, KV_NAMESPACE_ID]):
         print(
@@ -159,20 +174,24 @@ def main() -> int:
 
     print("=== 同步到 Cloudflare KV ===\n")
 
-    print("[1/3] 同步 logs/...")
+    print("[1/4] 同步 chat.html...")
+    s0, f0 = sync_chat_html()
+    print()
+
+    print("[2/4] 同步 logs/...")
     s1, f1 = sync_logs()
     print()
 
-    print("[2/3] 同步 skills/...")
-    s2, f2 = sync_skills()
-    print()
-
-    print("[3/3] 同步 config.yaml...")
+    print("[3/4] 同步 config.yaml...")
     s3, f3 = sync_config()
     print()
 
-    total_s = s1 + s2 + s3
-    total_f = f1 + f2 + f3
+    print("[4/4] 同步 skills/(已废弃,保留兼容)...")
+    s2, f2 = sync_skills()
+    print()
+
+    total_s = s0 + s1 + s2 + s3
+    total_f = f0 + f1 + f2 + f3
     print(f"=== 完成:{total_s} 成功,{total_f} 失败 ===")
 
     return 0 if total_f == 0 else 1

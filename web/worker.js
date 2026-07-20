@@ -1,75 +1,13 @@
 /**
- * A股财经对话助手 - Cloudflare Workers 后端
+ * A股财经对话助手 - Cloudflare Worker(极简单一对话版)
  *
- * 部署:
- *   1. 注册 Cloudflare 账号 → Workers → Create
- *   2. 复制本文件内容到编辑器
- *   3. Settings → Variables → 添加:
- *        DEEPSEEK_API_KEY
- *        GITHUB_REPO  (例如 Yaaaaaaa233/a-stock-brief)
- *        GITHUB_TOKEN (PAT,读私有 repo;公开 repo 可不填)
- *   4. 部署,记录 URL(https://xxx.workers.dev)
- *   5. 在 chat.html 里把 API_BASE 改成这个 URL
+ * 架构:
+ *   GET  /          → serve chat.html(从 KV,~50ms)
+ *   POST /api/chat  → 单一 LLM 对话(综合 prompt,自动判断问题类型)
+ *   GET  /api/health → 健康检查
+ *
+ * 不再依赖 GitHub Pages,父母只用一个 Worker URL。
  */
-
-const SKILLS_META = {
-  brief: {
-    name: '早报解读',
-    icon: '💬',
-    description: '基于今日早报回答,父母友好',
-    default: true,
-    greeting: '👋 你好!我已经读取了今天的早报,有什么想了解的吗?比如某条新闻的意思、对哪些板块有影响。',
-    quickReplies: [
-      '今天的早报讲了什么?',
-      '今天最值得关注的是什么?',
-      '有啥风险要注意?',
-    ],
-  },
-  sector: {
-    name: '板块查询',
-    icon: '🏭',
-    description: '查询板块龙头股',
-    greeting: '👋 想了解哪个板块?我可以告诉你对应的龙头股和关键词(只从我配置的 20 个板块里答)。',
-    quickReplies: [
-      '新能源板块有哪些龙头股?',
-      '半导体板块关注什么?',
-      '低空经济是什么?',
-    ],
-  },
-  policy: {
-    name: '政策解读',
-    icon: '📜',
-    description: '通俗解释财经政策',
-    greeting: '👋 把政策原文或者关键词发给我,我用大白话解释 + 打比方 + 影响分析。',
-    quickReplies: [
-      '降准是什么意思?',
-      'LPR 调整影响房贷吗?',
-      '集采对医药股是利好还是利空?',
-    ],
-  },
-  concept: {
-    name: '概念科普',
-    icon: '📚',
-    description: '解释财经名词',
-    greeting: '👋 遇到不懂的财经名词?发给我,我用最简单的话+生活化比喻解释。',
-    quickReplies: [
-      '什么是 PE?',
-      '北向资金是什么?',
-      '融资融券是啥意思?',
-    ],
-  },
-  history: {
-    name: '历史回顾',
-    icon: '🗓',
-    description: '查看过去几天早报',
-    greeting: '👋 我可以帮你回顾过去 7 天的早报内容,看看一周的关键资讯。',
-    quickReplies: [
-      '本周讲了哪些大事?',
-      '上周和这周比较?',
-      '最近有啥政策?',
-    ],
-  },
-};
 
 const CORS_HEADERS = {
   'Access-Control-Allow-Origin': '*',
@@ -92,8 +30,7 @@ function json(obj, status = 200) {
 }
 
 function bjNow() {
-  const now = new Date();
-  return new Date(now.getTime() + 8 * 3600 * 1000);
+  return new Date(Date.now() + 8 * 3600 * 1000);
 }
 
 function monthStr() {
@@ -101,145 +38,154 @@ function monthStr() {
   return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function dayStr() {
-  const d = bjNow();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`;
+let cachedHtml = null;
+
+async function getChatHtml(env) {
+  if (cachedHtml) return cachedHtml;
+
+  if (env.KV) {
+    try {
+      const html = await env.KV.get('chat:html');
+      if (html) {
+        cachedHtml = html;
+        return html;
+      }
+    } catch (e) {
+      console.log('KV chat:html read failed:', e.message);
+    }
+  }
+
+  // KV 没有 → 兜底 GitHub(慢,但保证可用)
+  const base = env.PUBLIC_REPO === 'true'
+    ? `https://cdn.jsdelivr.net/gh/${env.GITHUB_REPO}@main/`
+    : `https://raw.githubusercontent.com/${env.GITHUB_REPO}/main/`;
+  const headers = {};
+  if (env.GITHUB_TOKEN) headers['Authorization'] = `token ${env.GITHUB_TOKEN}`;
+  const r = await fetch(base + 'web/chat.html', { headers });
+  if (!r.ok) {
+    return '<html><body><h1>网页加载失败</h1><p>请稍后重试,或联系管理员同步 chat.html 到 KV。</p></body></html>';
+  }
+  const html = await r.text();
+
+  // 回写 KV(1 小时 TTL)
+  if (env.KV) {
+    try { await env.KV.put('chat:html', html, { expirationTtl: 3600 }); } catch (e) {}
+  }
+  return html;
 }
 
 function pathToKvKey(path) {
-  if (path.startsWith('web/skills/')) {
-    return `skills:${path.split('/').pop().replace('.md', '')}`;
-  }
-  if (path.startsWith('logs/')) {
-    return `logs:${path.split('/').pop().replace('.md', '')}`;
-  }
+  if (path.startsWith('logs/')) return `logs:${path.split('/').pop().replace('.md', '')}`;
   if (path === 'config.yaml') return 'config:yaml';
   return null;
 }
 
-async function fetchGitHub(path, env) {
-  // 1. 优先从 KV 读(主动同步的内容 + 被动缓存的内容都在这里)
+async function fetchFromGitHub(path, env) {
   if (env.KV) {
     const kvKey = pathToKvKey(path);
     if (kvKey) {
       try {
-        const cached = await env.KV.get(kvKey);
-        if (cached) return cached;
-      } catch (e) {
-        console.log('KV read failed:', e.message);
-      }
+        const v = await env.KV.get(kvKey);
+        if (v) return v;
+      } catch (e) {}
     }
   }
-
-  // 2. KV 未命中 → 兜底:jsDelivr(公开仓库)或 GitHub raw(私有仓库)
-  const useJsdelivr = env.PUBLIC_REPO === 'true' && !env.GITHUB_TOKEN;
-  const base = useJsdelivr
+  const base = env.PUBLIC_REPO === 'true' && !env.GITHUB_TOKEN
     ? `https://cdn.jsdelivr.net/gh/${env.GITHUB_REPO}@main/`
     : `https://raw.githubusercontent.com/${env.GITHUB_REPO}/main/`;
-  const url = base + path;
-
   const headers = {};
   if (env.GITHUB_TOKEN) headers['Authorization'] = `token ${env.GITHUB_TOKEN}`;
-  const r = await fetch(url, { headers });
-  if (!r.ok) {
-    throw new Error(`GitHub ${path} ${r.status}: ${await r.text()}`);
-  }
-  const content = await r.text();
-
-  // 3. 回写 KV(被动缓存:skill 1 小时,其他 15 分钟)
-  if (env.KV) {
-    const kvKey = pathToKvKey(path);
-    if (kvKey) {
-      const ttl = path.startsWith('web/skills/') ? 3600 : 900;
-      try {
-        await env.KV.put(kvKey, content, { expirationTtl: ttl });
-      } catch (e) {
-        console.log('KV write failed:', e.message);
-      }
-    }
-  }
-  return content;
-}
-
-function extractSystemPrompt(md) {
-  const end = md.indexOf('-->', md.indexOf('<!--'));
-  if (md.startsWith('---')) {
-    const fmEnd = md.indexOf('\n---', 3);
-    if (fmEnd > 0) return md.slice(fmEnd + 4).trim();
-  }
-  return md.trim();
-}
-
-function extractLatestDayBrief(logs) {
-  const dayKey = `## ${dayStr()}`;
-  const idx = logs.lastIndexOf(dayKey);
-  if (idx < 0) {
-    return logs.slice(-3000);
-  }
-  const nextSection = logs.indexOf('\n## ', idx + 5);
-  return nextSection > 0 ? logs.slice(idx, nextSection).trim() : logs.slice(idx).trim();
-}
-
-function extractRecentLogs(logs) {
-  const sections = logs.split(/\n## (?=\d{4}-\d{2}-\d{2})/);
-  return sections.slice(-7).join('\n## ').trim();
+  const r = await fetch(base + path, { headers });
+  if (!r.ok) throw new Error(`GitHub ${path} ${r.status}`);
+  return await r.text();
 }
 
 async function loadTodayBrief(env) {
-  // 优先 KV logs:latest(GitHub Actions 主动同步,~50ms)
   if (env.KV) {
     try {
-      const latest = await env.KV.get('logs:latest');
-      if (latest) return latest;
-    } catch (e) {
-      console.log('KV latest read failed:', e.message);
-    }
+      const v = await env.KV.get('logs:latest');
+      if (v) return v;
+    } catch (e) {}
   }
-  // 兜底:从 GitHub 拉 logs/YYYY-MM.md,提取当天段落
-  const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
-  return extractLatestDayBrief(logs);
+  try {
+    const logs = await fetchFromGitHub(`logs/${monthStr()}.md`, env);
+    return logs.slice(-3000);
+  } catch (e) {
+    return '(今日早报暂未生成)';
+  }
 }
 
-async function loadRecentLogs(env) {
-  // 优先 KV logs:YYYY-MM
-  if (env.KV) {
-    try {
-      const monthly = await env.KV.get(`logs:${monthStr()}`);
-      if (monthly) return extractRecentLogs(monthly);
-    } catch (e) {
-      console.log('KV monthly read failed:', e.message);
-    }
+async function loadSectorsConfig(env) {
+  try {
+    return await fetchFromGitHub('config.yaml', env);
+  } catch (e) {
+    return '(板块配置加载失败)';
   }
-  const logs = await fetchGitHub(`logs/${monthStr()}.md`, env);
-  return extractRecentLogs(logs);
 }
 
-async function buildSystemPrompt(skillId, env) {
-  const md = await fetchGitHub(`web/skills/${skillId}.md`, env);
-  let prompt = extractSystemPrompt(md);
+async function buildSystemPrompt(env) {
+  const [brief, sectors] = await Promise.all([
+    loadTodayBrief(env),
+    loadSectorsConfig(env),
+  ]);
 
-  if (prompt.includes('{{today_brief}}')) {
-    try {
-      prompt = prompt.replace('{{today_brief}}', await loadTodayBrief(env));
-    } catch (e) {
-      prompt = prompt.replace('{{today_brief}}', '(今日早报暂未生成)');
-    }
-  }
-  if (prompt.includes('{{recent_logs}}')) {
-    try {
-      prompt = prompt.replace('{{recent_logs}}', await loadRecentLogs(env));
-    } catch (e) {
-      prompt = prompt.replace('{{recent_logs}}', '(历史日志暂未生成)');
-    }
-  }
-  if (prompt.includes('{{sectors_config}}')) {
-    try {
-      prompt = prompt.replace('{{sectors_config}}', await fetchGitHub('config.yaml', env));
-    } catch (e) {
-      prompt = prompt.replace('{{sectors_config}}', '(板块配置加载失败)');
-    }
-  }
-  return prompt;
+  return `你是财经助手,服务对象是 55-70 岁的中老年 A 股投资者(只用微信,不熟悉专业术语)。
+
+## 今日早报内容(已自动加载)
+
+${brief}
+
+## 板块配置(查询龙头股时严格按此)
+
+${sectors}
+
+## 回答准则
+
+1. **通俗**:遇到专业词用 1 个生活化比喻解释(降准=银行少交保证金)
+2. **简洁**:回答不超过 250 字,先结论后原因
+3. **客观**:不给具体买卖建议(如"应该买 XX"),但可以解释影响方向
+4. **诚实**:早报里没讲到的,直接说"今天早报没提到",再按通用知识回答
+5. **风险提示**:提到具体股票时,自动加"投资有风险,仅供参考"
+6. **不预测涨跌**:严禁"会涨""必涨""必跌",改为"通常被认为是利好/利空"
+
+## 关于"政策"的严格定义(重要)
+
+用户问"政策"时,**严格按以下准则判断**:
+
+✅ **是政策**:
+- 国务院 / 央行 / 各部委 / 地方政府正式发文
+- 有明确发文单位(如"央行决定""财政部公告""证监会通知")
+- 有具体执行措施(降准 0.5% / 补贴延长至 X 年 / 减税 X%)
+- 通常能找到官方文件号(如"国发〔2024〕X 号")
+
+❌ **不是政策**(应明确告诉用户):
+- 新闻媒体报道"国家可能..."、"据传..."、"传闻..."
+- 分析师/机构的预测或建议(如"高盛预计央行将降息")
+- 公司公告(这是企业行为,不是政策)
+- 普通时事新闻(如"某领导人会见..."没有具体措施)
+
+**当用户问"今天有什么政策"时**:
+- 只从今日早报里找符合"政策"严格定义的内容
+- 如果早报里没有真正的政策(只有新闻),诚实说"今天早报里没有重大政策,主要新闻有..."
+- 不要把新闻当政策解读
+
+## 你能做什么
+
+1. **解读早报**:解释今日早报里的事件、对哪些板块有影响
+2. **政策解读**:严格按上述定义,只解读真正的政策文件
+3. **概念科普**:解释财经名词(PE/PB/北向资金/LPR 等),用比喻
+4. **板块查询**:告诉用户某板块的龙头股(从配置读,严禁编造)
+5. **历史回顾**:基于今日早报内容总结(不要编造历史)
+
+## 禁止行为
+
+- ❌ "建议买入/卖出 XX 股票"
+- ❌ "会涨/跌 X%"
+- ❌ 编造不在配置里的股票
+- ❌ 把新闻/传闻说成政策
+- ❌ 用更多专业词解释专业词
+
+遇到这些请求时,礼貌拒绝并解释风险。`;
 }
 
 async function callDeepSeek(systemPrompt, history, message, env) {
@@ -263,48 +209,21 @@ async function callDeepSeek(systemPrompt, history, message, env) {
     }),
   });
   if (!r.ok) {
-    const errText = await r.text();
-    throw new Error(`DeepSeek ${r.status}: ${errText}`);
+    throw new Error(`DeepSeek ${r.status}: ${(await r.text()).slice(0, 200)}`);
   }
   const data = await r.json();
   return data.choices?.[0]?.message?.content || '(空回复)';
 }
 
-async function handleSkills() {
-  const skills = Object.entries(SKILLS_META).map(([id, s]) => ({
-    id,
-    name: s.name,
-    icon: s.icon,
-    description: s.description,
-    default: !!s.default,
-    greeting: s.greeting,
-    quickReplies: s.quickReplies,
-  }));
-  return json({ skills });
-}
-
 async function handleChat(request, env) {
   let body;
+  try { body = await request.json(); } catch { return json({ error: '请求格式错误' }, 400); }
+  const { message, history } = body;
+  if (!message) return json({ error: '缺少 message' }, 400);
+  if (!env.DEEPSEEK_API_KEY) return json({ error: '服务器未配置 DEEPSEEK_API_KEY' }, 500);
+
   try {
-    body = await request.json();
-  } catch {
-    return json({ error: '请求格式错误' }, 400);
-  }
-  const { skill, message, history } = body;
-  if (!skill || !message) {
-    return json({ error: '缺少 skill 或 message 参数' }, 400);
-  }
-  if (!SKILLS_META[skill]) {
-    return json({ error: `未知 skill: ${skill}` }, 400);
-  }
-  if (!env.DEEPSEEK_API_KEY) {
-    return json({ error: '服务器未配置 DEEPSEEK_API_KEY' }, 500);
-  }
-  if (!env.GITHUB_REPO) {
-    return json({ error: '服务器未配置 GITHUB_REPO' }, 500);
-  }
-  try {
-    const systemPrompt = await buildSystemPrompt(skill, env);
+    const systemPrompt = await buildSystemPrompt(env);
     const reply = await callDeepSeek(systemPrompt, history, message, env);
     return json({ reply });
   } catch (e) {
@@ -319,12 +238,26 @@ export default {
     }
     const url = new URL(request.url);
     try {
-      if (url.pathname === '/api/skills') return await handleSkills();
+      if (url.pathname === '/' || url.pathname === '/chat.html' || url.pathname === '/index.html') {
+        const html = await getChatHtml(env);
+        return new Response(html, {
+          headers: {
+            'Content-Type': 'text/html; charset=utf-8',
+            'Cache-Control': 'public, max-age=300',
+          },
+        });
+      }
       if (url.pathname === '/api/chat' && request.method === 'POST') {
         return await handleChat(request, env);
       }
-      if (url.pathname === '/' || url.pathname === '/health') {
-        return json({ ok: true, service: 'a-stock-chat', time: bjNow().toISOString() });
+      if (url.pathname === '/api/health' || url.pathname === '/health') {
+        return json({
+          ok: true,
+          service: 'a-stock-chat',
+          has_kv: !!env.KV,
+          has_deepseek: !!env.DEEPSEEK_API_KEY,
+          time: bjNow().toISOString(),
+        });
       }
       return json({ error: 'Not Found' }, 404);
     } catch (e) {
