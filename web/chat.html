@@ -244,7 +244,22 @@ header .clear-btn:active { color: var(--text); }
 </div>
 
 <script>
-const API_BASE = window.location.origin;
+// API 地址优先级:URL 参数 ?api=xxx > localStorage > 同源(默认)
+// 网页放 GitHub Pages,API 走 Worker,这样规避 worker.dev 国内访问问题
+function resolveApiBase() {
+  const params = new URLSearchParams(window.location.search);
+  const fromUrl = params.get('api');
+  if (fromUrl) {
+    try { localStorage.setItem('a-stock-api', fromUrl); } catch {}
+    return fromUrl.replace(/\/$/, '');
+  }
+  try {
+    const saved = localStorage.getItem('a-stock-api');
+    if (saved) return saved.replace(/\/$/, '');
+  } catch {}
+  return window.location.origin;
+}
+const API_BASE = resolveApiBase();
 const state = { history: [], loading: false };
 
 const $ = id => document.getElementById(id);
