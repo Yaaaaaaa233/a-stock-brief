@@ -74,6 +74,7 @@ sectors:
 # credibility: 1-5,影响最终置信度(政府/官方=5,主流财经=4,聚合=3)
 # 全部通过 RSSHub 接入,加新源改 src/sources/rss.py 即可
 sources:
+  # === 新闻类 ===
   cls:
     enabled: true
     credibility: 5
@@ -89,16 +90,18 @@ sources:
     credibility: 4
     category: international
     description: 华尔街见闻全球资讯(国际新闻)
-  state_council:
+  # === 政策类(官方权威) ===
+  cctv_xwlb:
     enabled: true
     credibility: 5
     category: policy
-    description: 国务院最新政策(可能源站反爬)
-  pbc_gov:
+    description: 央视新闻联播(国家政策发布主渠道)
+  cctv_news:
     enabled: true
     credibility: 5
     category: policy
-    description: 央行公开市场操作
+    description: 央视新闻(补充政策报道)
+  # === 已废弃(实测全部 503/404,保留兼容) ===
   eastmoney_news:
     enabled: false
     credibility: 4

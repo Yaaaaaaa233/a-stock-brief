@@ -139,6 +139,7 @@ class RSSHubSource(BaseSource):
 def make_default_sources() -> list[RSSHubSource]:
     """默认 RSSHub 数据源列表。增删改这里即可。"""
     return [
+        # === 新闻类 ===
         RSSHubSource(
             name="cls",
             path="/cls/telegraph",
@@ -157,15 +158,18 @@ def make_default_sources() -> list[RSSHubSource]:
             credibility=4,
             category="international",
         ),
+        # === 政策类(官方权威) ===
+        # 央视新闻联播 - 国家政策发布最权威渠道,稳定可用
         RSSHubSource(
-            name="state_council",
-            path="/gov/zhengce/zuixin",
+            name="cctv_xwlb",
+            path="/cctv/xwlb",
             credibility=5,
             category="policy",
         ),
+        # 央视新闻 - 补充
         RSSHubSource(
-            name="pbc_gov",
-            path="/pbc/openmarket",
+            name="cctv_news",
+            path="/cctv/news",
             credibility=5,
             category="policy",
         ),

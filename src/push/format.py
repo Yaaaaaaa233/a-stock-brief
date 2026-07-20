@@ -125,17 +125,29 @@ def format_brief(
     max_normal: int = 2,
     chat_url: str = "",
 ) -> str:
-    """生成简报:资讯段 + 建议段。"""
+    """生成简报:政策段 + 资讯段 + 建议段。
+
+    政策段只放 category=policy 或被识别为政策的(严格定义)。
+    """
     paired = [
         (it, an) for it, an in zip(items, analyses)
         if an is not None and an.importance >= min_importance
     ]
     paired.sort(key=lambda x: x[1].importance, reverse=True)
 
-    headline = [(it, an) for it, an in paired if an.importance >= 5][:max_headline]
-    important = [(it, an) for it, an in paired if an.importance == 4][:max_important]
-    normal = [(it, an) for it, an in paired if an.importance == 3][:max_normal]
-    shown = headline + important + normal
+    # 区分政策 vs 资讯
+    policy_paired = [
+        (it, an) for it, an in paired
+        if it.category == "policy" or _looks_like_policy(it, an)
+    ]
+    policy_ids = {id(it) for it, _ in policy_paired}
+    news_paired = [(it, an) for it, an in paired if id(it) not in policy_ids]
+
+    policy_paired = policy_paired[:5]
+    headline = [(it, an) for it, an in news_paired if an.importance >= 5][:max_headline]
+    important = [(it, an) for it, an in news_paired if an.importance == 4][:max_important]
+    normal = [(it, an) for it, an in news_paired if an.importance == 3][:max_normal]
+    shown = policy_paired + headline + important + normal
 
     has_analysis = any(an is not None for an in analyses)
 
@@ -155,9 +167,15 @@ def format_brief(
                 t = "??:??"
             lines.append(f"• **{t}** {it.title[:40]} 🔗 {_source_link(it)}")
     else:
-        lines.append("\n## 📰 资讯")
+        # 政策段(优先显示)
+        if policy_paired:
+            lines.append("\n## 📜 政策\n")
+            for it, an in policy_paired:
+                lines.append(_format_news_item(it, an))
+
+        # 资讯段
+        lines.append("\n## 📰 资讯\n")
         if headline:
-            lines.append("")
             for it, an in headline:
                 lines.append(_format_news_item(it, an))
         if important:
@@ -187,3 +205,23 @@ def format_brief(
         lines.append(f"_{disclaimer}_")
 
     return "\n".join(lines)
+
+
+# 政策信号:部委名 + 公文动词同时出现才认作政策
+_POLICY_DEPTS = ["国务院", "央行", "财政部", "发改委", "证监会", "工信部",
+                  "商务部", "海关总署", "住建部", "税务总局", "国家网信办",
+                  "国家能源局", "国家医保局", "外交部", "农业农村部", "交通运输部"]
+_POLICY_DOCS = ["决定", "公告", "通知", "意见", "办法", "条例", "细则", "印发", "发布", "实施"]
+_NON_POLICY_HINTS = ["据传", "传闻", "分析师", "业内人士", "专家认为",
+                      "预计", "或将于", "可能", "有望", "据媒体报道"]
+
+
+def _looks_like_policy(item: Item, an: Analysis) -> bool:
+    """启发式:是否是政策(而非新闻)。部委名 + 公文动词同时出现。"""
+    text = (item.title or "") + (item.content or "")
+    for kw in _NON_POLICY_HINTS:
+        if kw in text:
+            return False
+    has_dept = any(kw in text for kw in _POLICY_DEPTS)
+    has_doc = any(kw in text for kw in _POLICY_DOCS)
+    return has_dept and has_doc

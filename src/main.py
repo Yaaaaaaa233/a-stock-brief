@@ -150,7 +150,7 @@ def build_sources(cfg: dict) -> list[BaseSource]:
 
     rss_names = {
         "cls", "kr37_newsflashes", "wallstreetcn_global",
-        "state_council", "pbc_gov",
+        "cctv_xwlb", "cctv_news",
     }
     for rss_src in make_default_sources():
         name = rss_src.name
