@@ -1,0 +1,141 @@
+# ===========================================
+# A 股财经简报 - 主配置文件
+# 修改本文件后 push 即可生效,无需改代码
+# ===========================================
+
+# 关注的板块 + 关键词 + 龙头股
+# LLM 只能从这些板块里选,龙头股从 config 读(防幻觉)
+sectors:
+  # ===== 申万一级行业(15 个)=====
+  银行:
+    keywords: [银行, 降准, 降息, LPR, MLF, 公开市场, 逆回购, 存款准备金, 银行业]
+    leaders: [工商银行, 招商银行, 兴业银行, 建设银行]
+  券商:
+    keywords: [券商, 证券, 资本市场改革, 两融, 牛市, 成交额, 投行]
+    leaders: [中信证券, 东方财富, 华泰证券, 中信建投]
+  白酒:
+    keywords: [白酒, 茅台, 五粮液, 食品饮料, 高端消费, 泸州老窖]
+    leaders: [贵州茅台, 五粮液, 泸州老窖, 山西汾酒]
+  医药:
+    keywords: [医保, 集采, 创新药, CXO, 疫苗, 医疗器械, 药品审评]
+    leaders: [恒瑞医药, 百济神州, 药明康德, 信达生物]
+  半导体:
+    keywords: [芯片, 半导体, 集成电路, 光刻, 国产替代, 存储芯片, 设备材料, 制裁]
+    leaders: [中芯国际, 北方华创, 韦尔股份, 中微公司]
+  计算机:
+    keywords: [人工智能, AI, 算力, 服务器, 软件, 信创, 数据要素, 大模型]
+    leaders: [科大讯飞, 金山办公, 浪潮信息, 中科曙光]
+  新能源:
+    keywords: [光伏, 锂电, 锂矿, 储能, 充电桩, 风电, 新能源]
+    leaders: [宁德时代, 隆基绿能, 阳光电源, 通威股份]
+  汽车:
+    keywords: [新能源车, 电动车, 智能驾驶, 汽车下乡, 以旧换新, 比亚迪]
+    leaders: [比亚迪, 长城汽车, 赛力斯, 理想汽车]
+  有色:
+    keywords: [有色金属, 黄金, 铜, 锂矿, 钴, 稀土]
+    leaders: [紫金矿业, 华友钴业, 洛阳钼业, 山东黄金]
+  军工:
+    keywords: [国防, 军工, 航天, 装备, 军备, 卫星]
+    leaders: [中航沈飞, 航发动力, 中航光电, 中国卫星]
+  地产:
+    keywords: [房地产, 地产, 楼市, 房贷利率, 保障房]
+    leaders: [万科, 保利发展, 招商蛇口, 华发股份]
+  煤炭:
+    keywords: [煤炭, 动力煤, 焦煤, 煤价]
+    leaders: [中国神华, 陕西煤业, 中煤能源]
+  石油石化:
+    keywords: [原油, 油价, 石油, 炼化, OPEC, 地缘]
+    leaders: [中国石油, 中国海油, 中国石化]
+  通信:
+    keywords: [通信, 光模块, 5G, 6G, 卫星互联网]
+    leaders: [中际旭创, 新易盛, 天孚通信]
+  农业:
+    keywords: [种业, 玉米, 大豆, 生猪, 农药, 化肥]
+    leaders: [牧原股份, 温氏股份, 大北农, 隆平高科]
+
+  # ===== 题材概念(5 个)=====
+  低空经济:
+    keywords: [低空经济, eVTOL, 无人机, 飞行汽车]
+    leaders: [亿航智能, 纵横股份, 中信海直, 建新股份]
+  商业航天:
+    keywords: [商业航天, 火箭, 卫星互联网, 星地链路]
+    leaders: [航天电器, 华力创通, 中国卫通]
+  人形机器人:
+    keywords: [人形机器人, 机器人, 减速器, 伺服]
+    leaders: [埃斯顿, 汇川技术, 绿的谐波, 鸣志电器]
+  固态电池:
+    keywords: [固态电池, 半固态电池, 电解质]
+    leaders: [赣锋锂业, 当升科技, 金龙羽, 上海洗霸]
+  AI算力:
+    keywords: [AI算力, 算力, GPU, 液冷, 数据中心]
+    leaders: [浪潮信息, 中科曙光, 寒武纪, 工业富联]
+
+# 数据源开关与权重
+# credibility: 1-5,影响最终置信度(政府/官方=5,主流财经=4,聚合=3)
+# 全部通过 RSSHub 接入,加新源改 src/sources/rss.py 即可
+sources:
+  cls:
+    enabled: true
+    credibility: 5
+    category: news
+    description: 财联社电报(RSSHub 路由 /cls/telegraph)
+  kr37_newsflashes:
+    enabled: true
+    credibility: 4
+    category: news
+    description: 36氪 7x24 快讯
+  wallstreetcn_global:
+    enabled: true
+    credibility: 4
+    category: international
+    description: 华尔街见闻全球资讯(国际新闻)
+  state_council:
+    enabled: true
+    credibility: 5
+    category: policy
+    description: 国务院最新政策(可能源站反爬)
+  pbc_gov:
+    enabled: true
+    credibility: 5
+    category: policy
+    description: 央行公开市场操作
+  eastmoney_news:
+    enabled: false
+    credibility: 4
+    category: news
+    description: 东方财富要闻(接口不稳,默认关)
+  market_data:
+    enabled: false
+    credibility: 5
+    category: market
+    description: akshare 行情/北向/龙虎榜(默认关,大财经平台已有)
+
+# LLM 配置
+llm:
+  provider: deepseek
+  model: deepseek-chat
+  max_tokens: 2000
+  temperature: 0.1
+  timeout: 60
+  retry: 2
+
+# 推送规则
+push:
+  min_importance: 3
+  max_items: 8
+  max_headline: 3
+  max_important: 3
+  max_normal: 2
+  dedupe_window_hours: 48
+  include_market_data: false
+  include_international: true
+
+# 简报标题
+brief:
+  title_prefix: "📊 A股财经早报"
+  disclaimer: "本简报由 AI 自动整理公开信息生成,关注建议仅供参考,不构成任何投资建议。"
+  timezone: "Asia/Shanghai"
+
+# 节假日(手动维护,akshare 也有交易日历可程序化判断)
+# 格式: YYYY-MM-DD
+holidays: []

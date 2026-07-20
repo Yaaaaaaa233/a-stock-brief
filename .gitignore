@@ -1,0 +1,26 @@
+# 依赖与缓存目录
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# 本地状态(可能含敏感预览)
+state/preview.md
+state/last_run.json
+
+# 编辑器/系统
+.vscode/
+.idea/
+.DS_Store
+.Rhistory
+*.swp
+
+# 本地配置覆盖(如果用 config.local.yaml)
+config.local.yaml
+.env
+
+# 临时测试输出
+/tmp/
+
