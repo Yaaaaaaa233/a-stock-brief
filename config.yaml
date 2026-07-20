@@ -137,7 +137,7 @@ brief:
   timezone: "Asia/Shanghai"
   # 对话网页 URL(部署后填写,GitHub Pages 或 Cloudflare Pages 地址)
   # 留空则简报末尾不显示对话链接
-  chat_url: ""
+  chat_url: "https://yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://astock-chat.1044498620.workers.dev"
 
 # 节假日(手动维护,akshare 也有交易日历可程序化判断)
 # 格式: YYYY-MM-DD
