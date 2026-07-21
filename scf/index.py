@@ -29,28 +29,23 @@ def fetch_github(path):
 
 
 def search_bing(query, max_results=5):
-    """Bing 搜索,适配中国版 cn.bing.com。"""
+    """用 Tavily 搜索 API(为 AI 设计,返回 LLM 友好的摘要)。"""
+    key = os.environ.get("TAVILY_API_KEY", "")
+    if not key:
+        return ""
     try:
-        url = f"https://cn.bing.com/search?q={urllib.parse.quote(query)}&count={max_results}"
-        r = http.get(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
-            "Accept-Language": "zh-CN,zh;q=0.9",
-        }, timeout=10)
-        raw = r.text
-        results = []
-        # 中国版 Bing 用 <li class="b_algo"> 或 <div class="b_caption">
-        for m in re.finditer(r'<li class="b_algo".*?<h2.*?<a[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>', raw, re.DOTALL):
-            title = re.sub(r'<[^>]+>|&[^;]+;', '', m.group(1)).strip()
-            body = re.sub(r'<[^>]+>|&[^;]+;', '', m.group(2))[:200].strip()
-            if title and len(title) > 3:
-                results.append(f"- {title}: {body}")
-                if len(results) >= max_results:
-                    break
+        r = http.post(
+            "https://api.tavily.com/search",
+            json={"api_key": key, "query": query, "search_depth": "basic", "max_results": max_results},
+            timeout=15,
+        )
+        r.raise_for_status()
+        results = r.json().get("results", [])
         if not results:
-            return f"(未提取,HTML {len(raw)}字节, 含b_algo:{'b_algo' in raw})"
-        return "\n".join(results)
-    except Exception as e:
-        return f"(搜索异常:{e})"
+            return ""
+        return "\n".join(f"- {i['title']}: {i['content'][:200]}" for i in results[:max_results])
+    except Exception:
+        return ""
 
 
 
