@@ -29,33 +29,25 @@ def fetch_github(path):
 
 
 def search_bing(query, max_results=5):
-    """Bing 搜索,直接 HTTP 请求,零依赖。"""
+    """Bing 搜索,适配中国版 cn.bing.com。"""
     try:
-        url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={max_results}"
-        r = http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        url = f"https://cn.bing.com/search?q={urllib.parse.quote(query)}&count={max_results}"
+        r = http.get(url, headers={
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0.0.0 Safari/537.36",
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }, timeout=10)
         raw = r.text
-        # 降级:用更简单的方式提取标题+摘要
         results = []
-        # 尝试几个不同的正则模式
-        for pat in [
-            r'<li class="b_algo"[^>]*?>.*?<h2[^>]*?>.*?<a[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>',
-            r'<h2[^>]*?>.*?<a[^>]*?href="([^"]*)"[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>',
-        ]:
-            for m in re.finditer(pat, raw, re.DOTALL | re.IGNORECASE):
-                groups = m.groups()
-                if len(groups) >= 2:
-                    title = re.sub(r'<[^>]+>', '', groups[-2] if len(groups) > 2 else groups[0])
-                    body = re.sub(r'<[^>]+>', '', groups[-1])[:200]
-                    title = re.sub(r'&[a-z#0-9]+;', '', title).strip()
-                    body = re.sub(r'&[a-z#0-9]+;', '', body).strip()
-                    if title and len(title) > 3:
-                        results.append(f"- {title}: {body}")
+        # 中国版 Bing 用 <li class="b_algo"> 或 <div class="b_caption">
+        for m in re.finditer(r'<li class="b_algo".*?<h2.*?<a[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>', raw, re.DOTALL):
+            title = re.sub(r'<[^>]+>|&[^;]+;', '', m.group(1)).strip()
+            body = re.sub(r'<[^>]+>|&[^;]+;', '', m.group(2))[:200].strip()
+            if title and len(title) > 3:
+                results.append(f"- {title}: {body}")
                 if len(results) >= max_results:
                     break
-            if results:
-                break
         if not results:
-            return f"(未提取到结果,HTML长度:{len(raw)}, 含b_algo:{'b_algo' in raw})"
+            return f"(未提取,HTML {len(raw)}字节, 含b_algo:{'b_algo' in raw})"
         return "\n".join(results)
     except Exception as e:
         return f"(搜索异常:{e})"
