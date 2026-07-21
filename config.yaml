@@ -138,9 +138,8 @@ brief:
   title_prefix: "📊 A股财经早报"
   disclaimer: "本简报由 AI 自动整理公开信息生成,关注建议仅供参考,不构成任何投资建议。"
   timezone: "Asia/Shanghai"
-  # 对话网页 URL(GitHub Pages 部署 chat.html,API 走 Worker)
-  # 留空则简报末尾不显示对话链接
-  chat_url: "https://yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://astock.1044498620.workers.dev"
+  # 对话网页 URL(GitHub Pages 网页 + 腾讯云 SCF API,国内全部可达)
+  chat_url: "https://yaaaaaaa233.github.io/a-stock-brief/chat.html?api=https://1456138294-78m3gwbdbm.ap-shanghai.tencentscf.com"
 
 # 节假日(手动维护,akshare 也有交易日历可程序化判断)
 # 格式: YYYY-MM-DD
