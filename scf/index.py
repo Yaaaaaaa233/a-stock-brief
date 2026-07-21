@@ -113,16 +113,20 @@ def main_handler(event, context):
     if path in ("/api/health", "/health"):
         return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"ok": True, "time": bj_now().isoformat()})}
 
-    # 临时调试:直查看能否读到日志
+    # 临时调试:看日志+搜索
     if path in ("/api/debug", "/debug"):
+        result = {"time": bj_now().isoformat()}
         try:
             url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/logs/{month_str()}.md"
-            r = http.get(url, timeout=20)
-            r.raise_for_status()
-            content = r.text[:500]
-            return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"ok": True, "url": url, "status": r.status_code, "size": len(r.text), "preview": content})}
+            r = http.get(url, timeout=30)
+            result["brief"] = {"ok": True, "size": len(r.text)}
         except Exception as e:
-            return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"ok": False, "url": url, "error": str(e)})}
+            result["brief"] = {"ok": False, "error": str(e)}
+        try:
+            result["search"] = search_bing("有色金属 行情")
+        except Exception as e:
+            result["search"] = f"异常:{e}"
+        return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps(result, ensure_ascii=False)}
 
     if path in ("/api/chat", "/chat") and method == "POST":
         try:
@@ -139,6 +143,8 @@ def main_handler(event, context):
             search = search_bing(msg)
             if search:
                 prompt += f"\n\n## 联网搜索结果\n{search}"
+            else:
+                prompt += "\n\n(联网搜索未返回结果,请仅用你的知识和今日资讯回答)"
             reply = call_deepseek(prompt, body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
