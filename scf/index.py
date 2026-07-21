@@ -7,7 +7,6 @@ import json, os, re
 from datetime import datetime, timedelta, timezone
 
 import requests as http
-from duckduckgo_search import DDGS
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Yaaaaaaa233/a-stock-brief")
@@ -28,17 +27,6 @@ def fetch_github(path):
     r.raise_for_status()
     return r.text
 
-
-def search_news(query, max_results=5):
-    """用 DuckDuckGo 搜索最新资讯。"""
-    try:
-        with DDGS() as ddgs:
-            results = list(ddgs.text(f"{query} 2026", max_results=max_results))
-        if not results:
-            return ""
-        return "\n".join(f"- {r['title']}: {r['body'][:200]}" for r in results)
-    except Exception:
-        return ""
 
 
 def latest_brief(logs):
@@ -124,12 +112,7 @@ def main_handler(event, context):
             return {"statusCode": 400, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "缺少 message"})}
 
         try:
-            prompt = build_prompt()
-            # 搜索最新资讯(5 条)
-            search_results = search_news(msg)
-            if search_results:
-                prompt += f"\n\n## 联网搜索结果\n{search_results}"
-            reply = call_deepseek(prompt, body.get("history", []), msg)
+            reply = call_deepseek(build_prompt(), body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
