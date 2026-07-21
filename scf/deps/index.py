@@ -61,7 +61,10 @@ def build_prompt():
 def call_deepseek(prompt, history, message):
     msgs = [{"role": "system", "content": prompt}]
     for m in (history or [])[-10:]:
-        msgs.append({"role": m.get("role", "user"), "content": m.get("content", "")})
+        role = m.get("role", "user")
+        if role == "ai":
+            role = "assistant"
+        msgs.append({"role": role, "content": m.get("content", "")})
     msgs.append({"role": "user", "content": message})
     r = http.post(
         "https://api.deepseek.com/v1/chat/completions",
