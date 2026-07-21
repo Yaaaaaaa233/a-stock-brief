@@ -75,10 +75,11 @@ def call_zhipu(prompt, history, message):
         "https://open.bigmodel.cn/api/paas/v4/chat/completions",
         headers={"Authorization": f"Bearer {ZHIPU_KEY}", "Content-Type": "application/json"},
         json={
-            "model": "glm-4-flash",
+            "model": "glm-4.5",
             "messages": msgs,
             "max_tokens": 800,
             "temperature": 0.5,
+            "tools": [{"type": "web_search", "web_search": {"search_result": True}}],
         },
         timeout=60,
     )
