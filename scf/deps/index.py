@@ -22,7 +22,7 @@ def month_str():
 
 
 def fetch_github(path):
-    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{path}"
+    url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/{path}"
     r = http.get(url, timeout=20)
     r.raise_for_status()
     return r.text
