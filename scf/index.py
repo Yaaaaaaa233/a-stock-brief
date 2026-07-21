@@ -3,7 +3,7 @@
 部署:文件名为 index.py,入口为 index.main_handler
 只需要 requests 一个依赖(SCF 内置),不需要 Flask。
 """
-import json, os, re
+import json, os, re, urllib.parse
 from datetime import datetime, timedelta, timezone
 
 import requests as http
@@ -26,6 +26,26 @@ def fetch_github(path):
     r = http.get(url, timeout=30)
     r.raise_for_status()
     return r.text
+
+
+def search_bing(query, max_results=5):
+    """Bing 搜索,直接 HTTP 请求,零依赖。"""
+    try:
+        url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={max_results}"
+        r = http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        results = []
+        for m in re.finditer(r'<li class="b_algo"[^>]*>(.*?)</li>', r.text, re.DOTALL):
+            h2 = re.search(r'<h2[^>]*><a[^>]*>(.*?)</a>', m.group(1))
+            p = re.search(r'<p[^>]*>(.*?)</p>', m.group(1))
+            if h2:
+                title = re.sub(r'<[^>]+>', '', h2.group(1))
+                body = re.sub(r'<[^>]+>', '', p.group(1))[:200] if p else ""
+                results.append(f"- {title}: {body}")
+                if len(results) >= max_results:
+                    break
+        return "\n".join(results) if results else ""
+    except Exception:
+        return ""
 
 
 
@@ -113,7 +133,11 @@ def main_handler(event, context):
             return {"statusCode": 400, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "缺少 message"})}
 
         try:
-            reply = call_deepseek(build_prompt(), body.get("history", []), msg)
+            prompt = build_prompt()
+            search = search_bing(msg)
+            if search:
+                prompt += f"\n\n## 联网搜索结果\n{search}"
+            reply = call_deepseek(prompt, body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
