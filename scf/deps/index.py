@@ -1,14 +1,16 @@
+"""腾讯云 SCF 事件函数 - 对话用智谱(自带联网搜索),早报仍用 DeepSeek。
+
+环境变量:
+  ZHIPU_API_KEY    智谱 API Key(必需)
+  GITHUB_REPO      Yaaaaaaa233/a-stock-brief
+  PUBLIC_REPO      true
 """
-腾讯云 SCF 事件函数入口。
-部署:文件名为 index.py,入口为 index.main_handler
-只需要 requests 一个依赖(SCF 内置),不需要 Flask。
-"""
-import json, os, re, urllib.parse
+import json, os, re
 from datetime import datetime, timedelta, timezone
 
 import requests as http
 
-DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
+ZHIPU_KEY = os.environ.get("ZHIPU_API_KEY", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Yaaaaaaa233/a-stock-brief")
 PUBLIC_REPO = os.environ.get("PUBLIC_REPO", "true").lower() == "true"
 
@@ -26,27 +28,6 @@ def fetch_github(path):
     r = http.get(url, timeout=30)
     r.raise_for_status()
     return r.text
-
-
-def search_bing(query, max_results=5):
-    """用 Tavily 搜索 API(为 AI 设计,返回 LLM 友好的摘要)。"""
-    key = os.environ.get("TAVILY_API_KEY", "")
-    if not key:
-        return ""
-    try:
-        r = http.post(
-            "https://api.tavily.com/search",
-            json={"api_key": key, "query": query, "search_depth": "basic", "max_results": max_results},
-            timeout=15,
-        )
-        r.raise_for_status()
-        results = r.json().get("results", [])
-        if not results:
-            return ""
-        return "\n".join(f"- {i['title']}: {i['content'][:200]}" for i in results[:max_results])
-    except Exception:
-        return ""
-
 
 
 def latest_brief(logs):
@@ -80,7 +61,8 @@ def build_prompt():
     )
 
 
-def call_deepseek(prompt, history, message):
+def call_zhipu(prompt, history, message):
+    """调智谱 GLM-4,自带联网搜索。"""
     msgs = [{"role": "system", "content": prompt}]
     for m in (history or [])[-10:]:
         role = m.get("role", "user")
@@ -88,17 +70,25 @@ def call_deepseek(prompt, history, message):
             role = "assistant"
         msgs.append({"role": role, "content": m.get("content", "")})
     msgs.append({"role": "user", "content": message})
+
     r = http.post(
-        "https://api.deepseek.com/v1/chat/completions",
-        headers={"Authorization": f"Bearer {DEEPSEEK_KEY}", "Content-Type": "application/json"},
-        json={"model": "deepseek-chat", "messages": msgs, "max_tokens": 800, "temperature": 0.5},
+        "https://open.bigmodel.cn/api/paas/v4/chat/completions",
+        headers={"Authorization": f"Bearer {ZHIPU_KEY}", "Content-Type": "application/json"},
+        json={
+            "model": "glm-4",
+            "messages": msgs,
+            "max_tokens": 800,
+            "temperature": 0.5,
+            "tools": [{"type": "web_search", "web_search": {"search_result": True}}],
+        },
         timeout=60,
     )
     r.raise_for_status()
-    return r.json()["choices"][0]["message"]["content"]
+    data = r.json()
+    return data["choices"][0]["message"]["content"]
 
 
-# ---------- 事件函数入口 ----------
+# ---------- 入口 ----------
 
 def main_handler(event, context):
     path = event.get("path", "/")
@@ -111,19 +101,14 @@ def main_handler(event, context):
     if path in ("/api/health", "/health"):
         return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"ok": True, "time": bj_now().isoformat()})}
 
-    # 临时调试:看日志+搜索
     if path in ("/api/debug", "/debug"):
-        result = {"time": bj_now().isoformat()}
+        result = {"time": bj_now().isoformat(), "has_zhipu": bool(ZHIPU_KEY)}
         try:
             url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/logs/{month_str()}.md"
             r = http.get(url, timeout=30)
             result["brief"] = {"ok": True, "size": len(r.text)}
         except Exception as e:
             result["brief"] = {"ok": False, "error": str(e)}
-        try:
-            result["search"] = search_bing("有色金属 行情")
-        except Exception as e:
-            result["search"] = f"异常:{e}"
         return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps(result, ensure_ascii=False)}
 
     if path in ("/api/chat", "/chat") and method == "POST":
@@ -135,15 +120,11 @@ def main_handler(event, context):
         msg = (body.get("message") or "").strip()
         if not msg:
             return {"statusCode": 400, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "缺少 message"})}
+        if not ZHIPU_KEY:
+            return {"statusCode": 500, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "服务未配置 ZHIPU_API_KEY"})}
 
         try:
-            prompt = build_prompt()
-            search = search_bing(msg)
-            if search:
-                prompt += f"\n\n## 联网搜索结果\n{search}"
-            else:
-                prompt += "\n\n(联网搜索未返回结果,请仅用你的知识和今日资讯回答)"
-            reply = call_deepseek(prompt, body.get("history", []), msg)
+            reply = call_zhipu(build_prompt(), body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
