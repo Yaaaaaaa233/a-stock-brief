@@ -33,21 +33,32 @@ def search_bing(query, max_results=5):
     try:
         url = f"https://www.bing.com/search?q={urllib.parse.quote(query)}&count={max_results}"
         r = http.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
+        raw = r.text
+        # 降级:用更简单的方式提取标题+摘要
         results = []
-        for m in re.finditer(r'<li class="b_algo"[^>]*>(.*?)</li>', r.text, re.DOTALL):
-            h2 = re.search(r'<h2[^>]*><a[^>]*>(.*?)</a>', m.group(1))
-            p = re.search(r'<p[^>]*>(.*?)</p>', m.group(1))
-            if h2:
-                title = re.sub(r'<[^>]+>', '', h2.group(1))
-                title = re.sub(r'&[a-z#0-9]+;', '', title)
-                body = re.sub(r'<[^>]+>', '', p.group(1))[:200] if p else ""
-                body = re.sub(r'&[a-z#0-9]+;', '', body)
-                results.append(f"- {title}: {body}")
+        # 尝试几个不同的正则模式
+        for pat in [
+            r'<li class="b_algo"[^>]*?>.*?<h2[^>]*?>.*?<a[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>',
+            r'<h2[^>]*?>.*?<a[^>]*?href="([^"]*)"[^>]*?>(.*?)</a>.*?<p[^>]*?>(.*?)</p>',
+        ]:
+            for m in re.finditer(pat, raw, re.DOTALL | re.IGNORECASE):
+                groups = m.groups()
+                if len(groups) >= 2:
+                    title = re.sub(r'<[^>]+>', '', groups[-2] if len(groups) > 2 else groups[0])
+                    body = re.sub(r'<[^>]+>', '', groups[-1])[:200]
+                    title = re.sub(r'&[a-z#0-9]+;', '', title).strip()
+                    body = re.sub(r'&[a-z#0-9]+;', '', body).strip()
+                    if title and len(title) > 3:
+                        results.append(f"- {title}: {body}")
                 if len(results) >= max_results:
                     break
-        return "\n".join(results) if results else ""
-    except Exception:
-        return ""
+            if results:
+                break
+        if not results:
+            return f"(未提取到结果,HTML长度:{len(raw)}, 含b_algo:{'b_algo' in raw})"
+        return "\n".join(results)
+    except Exception as e:
+        return f"(搜索异常:{e})"
 
 
 
