@@ -139,38 +139,13 @@ class RSSHubSource(BaseSource):
 def make_default_sources() -> list[RSSHubSource]:
     """默认 RSSHub 数据源列表。增删改这里即可。"""
     return [
-        # === 新闻类 ===
-        RSSHubSource(
-            name="cls",
-            path="/cls/telegraph",
-            credibility=5,
-            category="news",
-        ),
-        RSSHubSource(
-            name="kr37_newsflashes",
-            path="/36kr/newsflashes",
-            credibility=4,
-            category="news",
-        ),
-        RSSHubSource(
-            name="wallstreetcn_global",
-            path="/wallstreetcn/news/global",
-            credibility=4,
-            category="international",
-        ),
-        # === 政策类(官方权威) ===
-        # 央视新闻联播 - 国家政策发布最权威渠道,稳定可用
-        RSSHubSource(
-            name="cctv_xwlb",
-            path="/cctv/xwlb",
-            credibility=5,
-            category="policy",
-        ),
-        # 央视新闻 - 补充
-        RSSHubSource(
-            name="cctv_news",
-            path="/cctv/news",
-            credibility=5,
-            category="policy",
-        ),
+        RSSHubSource(name="cls", path="/cls/telegraph", credibility=5, category="news"),
+        RSSHubSource(name="kr37_newsflashes", path="/36kr/newsflashes", credibility=4, category="news"),
+        RSSHubSource(name="cls_depth", path="/cls/depth/1000", credibility=4, category="news"),
+        RSSHubSource(name="caixin", path="/caixin/latest", credibility=5, category="news"),
+        RSSHubSource(name="wallstreetcn_global", path="/wallstreetcn/news/global", credibility=4, category="international"),
+        RSSHubSource(name="wallstreetcn_china", path="/wallstreetcn/news/china", credibility=4, category="news"),
+        RSSHubSource(name="jin10", path="/jin10/lives", credibility=4, category="news"),
+        RSSHubSource(name="cctv_xwlb", path="/cctv/xwlb", credibility=5, category="policy"),
+        RSSHubSource(name="cctv_news", path="/cctv/news", credibility=5, category="policy"),
     ]
