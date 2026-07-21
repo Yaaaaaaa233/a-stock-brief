@@ -7,6 +7,7 @@ import json, os, re
 from datetime import datetime, timedelta, timezone
 
 import requests as http
+from duckduckgo_search import DDGS
 
 DEEPSEEK_KEY = os.environ.get("DEEPSEEK_API_KEY", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Yaaaaaaa233/a-stock-brief")
@@ -26,6 +27,18 @@ def fetch_github(path):
     r = http.get(url, timeout=20)
     r.raise_for_status()
     return r.text
+
+
+def search_news(query, max_results=5):
+    """用 DuckDuckGo 搜索最新资讯。"""
+    try:
+        with DDGS() as ddgs:
+            results = list(ddgs.text(f"{query} 2026", max_results=max_results))
+        if not results:
+            return ""
+        return "\n".join(f"- {r['title']}: {r['body'][:200]}" for r in results)
+    except Exception:
+        return ""
 
 
 def latest_brief(logs):
@@ -49,7 +62,7 @@ def build_prompt():
         "## 规则\n"
         "1. 先结论后原因,每轮不超过 250 字\n"
         "2. 不给买卖建议\n"
-        "3. 问题涉及今日资讯的,优先基于早报回答;早报未涉及的,用你的通用知识回答\n"
+        "3. 问题与今日资讯相关的,优先参考;否则参考联网搜索结果;都无法判断时用通用知识\n"
         "4. 提股票时加'投资有风险,仅供参考'\n\n"
         "## 政策判断\n"
         "国务院/央行/部委/地方政府正式发文才算政策。新闻报道、分析师观点不算。\n\n"
@@ -111,7 +124,12 @@ def main_handler(event, context):
             return {"statusCode": 400, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "缺少 message"})}
 
         try:
-            reply = call_deepseek(build_prompt(), body.get("history", []), msg)
+            prompt = build_prompt()
+            # 搜索最新资讯(5 条)
+            search_results = search_news(msg)
+            if search_results:
+                prompt += f"\n\n## 联网搜索结果\n{search_results}"
+            reply = call_deepseek(prompt, body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
