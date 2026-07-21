@@ -79,28 +79,48 @@ sources:
     enabled: true
     credibility: 5
     category: news
-    description: 财联社电报(RSSHub 路由 /cls/telegraph)
+    description: 财联社电报(国内财经快讯)
   kr37_newsflashes:
     enabled: true
     credibility: 4
     category: news
     description: 36氪 7x24 快讯
+  cls_depth:
+    enabled: true
+    credibility: 4
+    category: news
+    description: 财联社深度(行业分析)
+  caixin:
+    enabled: true
+    credibility: 5
+    category: news
+    description: 财新网(权威财经)
   wallstreetcn_global:
     enabled: true
     credibility: 4
     category: international
-    description: 华尔街见闻全球资讯(国际新闻)
-  # === 政策类(官方权威) ===
+    description: 华尔街见闻全球
+  wallstreetcn_china:
+    enabled: true
+    credibility: 4
+    category: news
+    description: 华尔街见闻·中国
+  jin10:
+    enabled: true
+    credibility: 4
+    category: news
+    description: 金十数据(实时金融)
+  # === 政策类 ===
   cctv_xwlb:
     enabled: true
     credibility: 5
     category: policy
-    description: 央视新闻联播(国家政策发布主渠道)
+    description: 央视新闻联播
   cctv_news:
     enabled: true
     credibility: 5
     category: policy
-    description: 央视新闻(补充政策报道)
+    description: 央视新闻
   # === 已废弃(实测全部 503/404,保留兼容) ===
   eastmoney_news:
     enabled: false
