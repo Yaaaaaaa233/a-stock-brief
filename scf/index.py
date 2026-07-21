@@ -39,11 +39,11 @@ def build_prompt():
     try:
         brief = latest_brief(fetch_github(f"logs/{month_str()}.md"))
     except Exception as e:
-        brief = f"(早报暂未生成: {e})"
+        brief = f"(早报加载失败:{e})"
     try:
         sectors = fetch_github("config.yaml")
-    except:
-        sectors = "(配置加载失败)"
+    except Exception as e:
+        sectors = f"(配置加载失败:{e})"
 
     return (
         f"你是一名财经分析助手。以下是今日资讯汇总,基于此回答问题。\n\n"
