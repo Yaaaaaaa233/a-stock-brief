@@ -39,7 +39,9 @@ def search_bing(query, max_results=5):
             p = re.search(r'<p[^>]*>(.*?)</p>', m.group(1))
             if h2:
                 title = re.sub(r'<[^>]+>', '', h2.group(1))
+                title = re.sub(r'&[a-z#0-9]+;', '', title)
                 body = re.sub(r'<[^>]+>', '', p.group(1))[:200] if p else ""
+                body = re.sub(r'&[a-z#0-9]+;', '', body)
                 results.append(f"- {title}: {body}")
                 if len(results) >= max_results:
                     break
