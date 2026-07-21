@@ -22,10 +22,8 @@ def month_str():
 
 
 def fetch_github(path):
-    url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/{path}" if PUBLIC_REPO \
-        else f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{path}"
-    h = {"Authorization": f"token {os.environ.get('GITHUB_TOKEN','')}"} if os.environ.get("GITHUB_TOKEN") else {}
-    r = http.get(url, headers=h, timeout=20)
+    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{path}"
+    r = http.get(url, timeout=20)
     r.raise_for_status()
     return r.text
 
