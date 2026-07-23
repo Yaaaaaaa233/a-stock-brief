@@ -76,11 +76,12 @@ def call_dashscope(prompt, history, message):
         "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
         headers={"Authorization": f"Bearer {DASHSCOPE_KEY}", "Content-Type": "application/json"},
         json={
-            "model": "qwen3.5-plus",
+            "model": "qwen-max",
             "messages": msgs,
             "max_tokens": 800,
             "temperature": 0.5,
             "enable_search": True,
+            "search_options": {"forced_search": False},
         },
         timeout=60,
     )
