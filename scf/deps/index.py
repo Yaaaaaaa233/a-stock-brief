@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 import requests as http
 
 ZHIPU_KEY = os.environ.get("ZHIPU_API_KEY", "")
+DASHSCOPE_KEY = os.environ.get("DASHSCOPE_API_KEY", "")
 GITHUB_REPO = os.environ.get("GITHUB_REPO", "Yaaaaaaa233/a-stock-brief")
 PUBLIC_REPO = os.environ.get("PUBLIC_REPO", "true").lower() == "true"
 
@@ -61,8 +62,8 @@ def build_prompt():
     )
 
 
-def call_zhipu(prompt, history, message):
-    """调智谱 GLM-4,自带联网搜索。"""
+def call_dashscope(prompt, history, message):
+    """调阿里通义千问,自带联网搜索。"""
     msgs = [{"role": "system", "content": prompt}]
     for m in (history or [])[-10:]:
         role = m.get("role", "user")
@@ -72,14 +73,14 @@ def call_zhipu(prompt, history, message):
     msgs.append({"role": "user", "content": message})
 
     r = http.post(
-        "https://open.bigmodel.cn/api/paas/v4/chat/completions",
-        headers={"Authorization": f"Bearer {ZHIPU_KEY}", "Content-Type": "application/json"},
+        "https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions",
+        headers={"Authorization": f"Bearer {DASHSCOPE_KEY}", "Content-Type": "application/json"},
         json={
-            "model": "glm-4",
+            "model": "qwen3.5-plus",
             "messages": msgs,
             "max_tokens": 800,
             "temperature": 0.5,
-            "tools": [{"type": "web_search", "web_search": {"search_result": True}}],
+            "enable_search": True,
         },
         timeout=60,
     )
@@ -102,7 +103,7 @@ def main_handler(event, context):
         return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"ok": True, "time": bj_now().isoformat()})}
 
     if path in ("/api/debug", "/debug"):
-        result = {"time": bj_now().isoformat(), "has_zhipu": bool(ZHIPU_KEY)}
+        result = {"time": bj_now().isoformat(), "has_dashscope": bool(DASHSCOPE_KEY)}
         try:
             url = f"https://cdn.jsdelivr.net/gh/{GITHUB_REPO}@main/logs/{month_str()}.md"
             r = http.get(url, timeout=30)
@@ -120,11 +121,11 @@ def main_handler(event, context):
         msg = (body.get("message") or "").strip()
         if not msg:
             return {"statusCode": 400, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "缺少 message"})}
-        if not ZHIPU_KEY:
-            return {"statusCode": 500, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "服务未配置 ZHIPU_API_KEY"})}
+        if not DASHSCOPE_KEY:
+            return {"statusCode": 500, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "服务未配置 DASHSCOPE_API_KEY"})}
 
         try:
-            reply = call_zhipu(build_prompt(), body.get("history", []), msg)
+            reply = call_dashscope(build_prompt(), body.get("history", []), msg)
             return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
