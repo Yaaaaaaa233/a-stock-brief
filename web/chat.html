@@ -346,7 +346,22 @@ async function send(text) {
     }
     const data = await r.json();
     removeTyping();
-    addMessage('ai', data.reply);
+    // 流式打字效果
+    const tokens = data.tokens || [data.reply || ''];
+    const msgDiv = document.createElement('div');
+    msgDiv.className = 'msg ai';
+    msgDiv.innerHTML = '<div class="role">助手</div><div class="bubble" id="stream-bubble"></div>';
+    $chat.appendChild(msgDiv);
+    const bubble = $('stream-bubble');
+    let text = '';
+    for (const t of tokens) {
+      text += t;
+      bubble.innerHTML = renderMd(text);
+      requestAnimationFrame(() => $chat.scrollTop = $chat.scrollHeight);
+      await new Promise(r => setTimeout(r, 20));
+    }
+    bubble.removeAttribute('id');
+    state.history.push({ role: 'ai', content: text });
   } catch (e) {
     removeTyping();
     addMessage('ai', friendlyError(e));
