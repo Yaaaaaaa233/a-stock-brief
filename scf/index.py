@@ -62,7 +62,7 @@ def build_prompt():
 
 
 def call_dashscope(prompt, history, message):
-    """调阿里通义千问,自带联网搜索。"""
+    """调阿里通义千问,流式+联网搜索,返回所有 token 列表。"""
     msgs = [{"role": "system", "content": prompt}]
     for m in (history or [])[-10:]:
         role = m.get("role", "user")
@@ -81,12 +81,29 @@ def call_dashscope(prompt, history, message):
             "temperature": 0.5,
             "enable_search": True,
             "search_options": {"forced_search": True, "search_strategy": "turbo"},
+            "stream": True,
         },
         timeout=60,
+        stream=True,
     )
     r.raise_for_status()
-    data = r.json()
-    return data["choices"][0]["message"]["content"]
+    tokens = []
+    for line in r.iter_lines():
+        if not line or line.startswith(b":"):
+            continue
+        if line.startswith(b"data: "):
+            data = line[6:]
+            if data == b"[DONE]":
+                break
+            try:
+                obj = json.loads(data)
+                delta = obj["choices"][0].get("delta", {})
+                content = delta.get("content", "")
+                if content:
+                    tokens.append(content)
+            except Exception:
+                continue
+    return tokens
 
 
 # ---------- 入口 ----------
@@ -125,8 +142,8 @@ def main_handler(event, context):
             return {"statusCode": 500, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": "服务未配置 DASHSCOPE_API_KEY"})}
 
         try:
-            reply = call_dashscope(build_prompt(), body.get("history", []), msg)
-            return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"reply": reply})}
+            tokens = call_dashscope(build_prompt(), body.get("history", []), msg)
+            return {"statusCode": 200, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"tokens": tokens}, ensure_ascii=False)}
         except Exception as e:
             return {"statusCode": 502, "headers": {**cors, "Content-Type": "application/json"}, "body": json.dumps({"error": str(e)})}
 
