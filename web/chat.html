@@ -353,15 +353,15 @@ async function send(text) {
     msgDiv.innerHTML = '<div class="role">助手</div><div class="bubble" id="stream-bubble"></div>';
     $chat.appendChild(msgDiv);
     const bubble = $('stream-bubble');
-    let text = '';
+    let full = '';
     for (const t of tokens) {
-      text += t;
-      bubble.innerHTML = renderMd(text);
+      full += t;
+      bubble.innerHTML = renderMd(full);
       requestAnimationFrame(() => $chat.scrollTop = $chat.scrollHeight);
       await new Promise(r => setTimeout(r, 20));
     }
     bubble.removeAttribute('id');
-    state.history.push({ role: 'ai', content: text });
+    state.history.push({ role: 'ai', content: full });
   } catch (e) {
     removeTyping();
     addMessage('ai', friendlyError(e));
