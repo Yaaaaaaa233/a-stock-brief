@@ -70,7 +70,7 @@ requests>=2.31.0
 
 | Key | Value |
 |---|---|
-| `DEEPSEEK_API_KEY` | `sk-58f7d63754884e13b85d4c33e9ae8403` |
+| `DEEPSEEK_API_KEY` | `sk-你的key`(在 DeepSeek 平台创建,勿提交到仓库) |
 | `GITHUB_REPO` | `Yaaaaaaa233/a-stock-brief` |
 | `PUBLIC_REPO` | `true` |
 
